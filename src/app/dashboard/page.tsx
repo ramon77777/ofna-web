@@ -1,54 +1,78 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import {
-  Wallet,
+  AlertTriangle,
   BadgeDollarSign,
   BriefcaseBusiness,
-  Star,
   ShieldCheck,
-  AlertTriangle,
+  Star,
+  Wallet,
 } from 'lucide-react';
-import DashboardShell from '@/components/layout/DashboardShell';
-import StatCard from '@/components/dashboard/StatCard';
-import RecentTransactionsTable from '@/components/dashboard/RecentTransactionsTable';
-import RecentCommissionsTable from '@/components/dashboard/RecentCommissionsTable';
+
 import PartnerStatusCard from '@/components/dashboard/PartnerStatusCard';
+import RecentCommissionsTable from '@/components/dashboard/RecentCommissionsTable';
+import RecentTransactionsTable from '@/components/dashboard/RecentTransactionsTable';
+import StatCard from '@/components/dashboard/StatCard';
+import DashboardShell from '@/components/layout/DashboardShell';
 import { api } from '@/lib/api';
 import { getPartnerToken } from '@/lib/auth';
 import { PartnerDashboardResponse } from '@/lib/types';
 
-export default function DashboardPage() {
-  const router = useRouter();
+function formatMoney(value: string | number | null | undefined) {
+  const amount = Number(value ?? 0);
 
+  return `${amount.toLocaleString('fr-FR', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  })} FCFA`;
+}
+
+function getWalletStatusLabel(status: string | null | undefined) {
+  const normalized = String(status ?? '').toLowerCase();
+
+  const labels: Record<string, string> = {
+    actif: 'Actif',
+    faible: 'Solde faible',
+    vide: 'Vide',
+    bloque: 'Bloqué',
+  };
+
+  return labels[normalized] ?? status ?? 'Non défini';
+}
+
+export default function DashboardPage() {
   const [data, setData] = useState<PartnerDashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const loadDashboard = async () => {
+    try {
+      setError(null);
+
+      const response = await api.get<PartnerDashboardResponse>(
+        '/partners/me/dashboard',
+      );
+
+      setData(response.data);
+    } catch {
+      setError('Impossible de charger le dashboard partenaire.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     const token = getPartnerToken();
 
     if (!token) {
-      router.replace('/login');
+      window.location.replace('/login');
       return;
     }
 
-    const loadDashboard = async () => {
-      try {
-        const response = await api.get<PartnerDashboardResponse>(
-          '/partners/me/dashboard',
-        );
-        setData(response.data);
-      } catch {
-        setError('Impossible de charger le dashboard partenaire.');
-      } finally {
-        setLoading(false);
-      }
-    };
-
     void loadDashboard();
-  }, [router]);
+  }, []);
 
   return (
     <DashboardShell>
@@ -57,9 +81,11 @@ export default function DashboardPage() {
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[var(--ofna-green)]">
             Dashboard partenaire
           </p>
+
           <h2 className="mt-2 text-3xl font-bold text-[var(--ofna-dark)] md:text-4xl">
             Vue d’ensemble de votre activité
           </h2>
+
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500 md:text-base">
             Suivez vos indicateurs clés, vos dernières transactions et l’état
             opérationnel de votre compte partenaire.
@@ -91,31 +117,35 @@ export default function DashboardPage() {
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
             <StatCard
               title="Solde portefeuille"
-              value={`${data.wallet.balance} FCFA`}
+              value={formatMoney(data.wallet.balance)}
               icon={<Wallet className="h-5 w-5" />}
               tone="green"
             />
+
             <StatCard
               title="Commissions payées"
-              value={`${data.stats.totalCommissionPaid} FCFA`}
+              value={formatMoney(data.stats.totalCommissionPaid)}
               icon={<BadgeDollarSign className="h-5 w-5" />}
               tone="dark"
             />
+
             <StatCard
               title="Missions commissionnées"
               value={String(data.stats.missionsCommissionedCount)}
               icon={<BriefcaseBusiness className="h-5 w-5" />}
               tone="light"
             />
+
             <StatCard
               title="Note moyenne"
-              value={data.partnerProfile.averageRating}
+              value={String(data.partnerProfile.averageRating)}
               icon={<Star className="h-5 w-5" />}
               tone="green"
             />
+
             <StatCard
-              title="Statut wallet"
-              value={data.wallet.walletStatus}
+              title="Statut portefeuille"
+              value={getWalletStatusLabel(data.wallet.walletStatus)}
               icon={<ShieldCheck className="h-5 w-5" />}
               tone="light"
             />
@@ -134,15 +164,26 @@ export default function DashboardPage() {
                 <h3 className="text-lg font-bold text-[var(--ofna-dark)]">
                   Actions rapides
                 </h3>
+
                 <p className="mt-1 text-sm text-slate-500">
                   Accédez rapidement à vos espaces clés.
                 </p>
 
                 <div className="mt-4 grid gap-3">
-                  <QuickAction label="Voir le wallet" href="/wallet" />
-                  <QuickAction label="Créer une recharge" href="/partner/recharges" />
-                  <QuickAction label="Consulter les commissions" href="/commissions" />
-                  <QuickAction label="Voir les transactions" href="/transactions" />
+                  <QuickAction label="Voir mes missions" href="/missions" />
+                  <QuickAction label="Voir le portefeuille" href="/wallet" />
+                  <QuickAction
+                    label="Créer une recharge"
+                    href="/partner/recharges"
+                  />
+                  <QuickAction
+                    label="Consulter les commissions"
+                    href="/commissions"
+                  />
+                  <QuickAction
+                    label="Voir les transactions"
+                    href="/transactions"
+                  />
                   <QuickAction label="Mettre à jour le profil" href="/profile" />
                 </div>
               </div>
@@ -160,6 +201,7 @@ export default function DashboardPage() {
                       <h3 className="text-base font-bold text-amber-900">
                         Document à reprendre
                       </h3>
+
                       <p className="mt-1 text-sm leading-6 text-amber-700">
                         Un document de votre dossier partenaire doit être corrigé
                         pour finaliser la conformité de votre espace.
@@ -178,11 +220,11 @@ export default function DashboardPage() {
 
 function QuickAction({ label, href }: { label: string; href: string }) {
   return (
-    <a
+    <Link
       href={href}
       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-[var(--ofna-green)] hover:bg-[var(--ofna-green-soft)] hover:text-[var(--ofna-dark)]"
     >
       {label}
-    </a>
+    </Link>
   );
 }
