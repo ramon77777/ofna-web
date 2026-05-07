@@ -1,42 +1,59 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { Clock3, Eye, UserCheck } from 'lucide-react';
+
 import AdminShell from '@/components/admin/AdminShell';
 import { api } from '@/lib/api';
 import { getAccessToken, getCurrentUser } from '@/lib/auth';
 import { PartnerProfile } from '@/lib/types';
 
-export default function PendingPartnersPage() {
-  const router = useRouter();
+const statusLabelMap: Record<string, string> = {
+  en_attente: 'En attente',
+  en_cours_verification: 'En cours de vérification',
+  documents_a_completer: 'Documents à compléter',
+};
 
+function getStatusLabel(status: string) {
+  return statusLabelMap[status] ?? status;
+}
+
+export default function PendingPartnersPage() {
   const [partners, setPartners] = useState<PartnerProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const token = getAccessToken();
-    const user = getCurrentUser();
+  const loadPendingPartners = async () => {
+    try {
+      setError(null);
 
-    if (!token || user?.role !== 'admin') {
-      router.replace('/login');
-      return;
+      const response = await api.get<PartnerProfile[]>('/admin/partners/pending');
+      setPartners(Array.isArray(response.data) ? response.data : []);
+    } catch {
+      setError('Impossible de charger les partenaires en attente.');
+    } finally {
+      setLoading(false);
     }
+  };
 
-    const loadPendingPartners = async () => {
-      try {
-        const response = await api.get<PartnerProfile[]>('/admin/partners/pending');
-        setPartners(response.data);
-      } catch {
-        setError('Impossible de charger les partenaires en attente.');
-      } finally {
-        setLoading(false);
-      }
-    };
+  useEffect(() => {
+  const token = getAccessToken();
+  const user = getCurrentUser();
 
+  if (!token || user?.role !== 'admin') {
+    window.location.replace('/login');
+    return;
+  }
+
+  const timeoutId = window.setTimeout(() => {
     void loadPendingPartners();
-  }, [router]);
+  }, 0);
+
+  return () => {
+    window.clearTimeout(timeoutId);
+  };
+}, []);
 
   return (
     <AdminShell>
@@ -44,12 +61,14 @@ export default function PendingPartnersPage() {
         <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[var(--ofna-green)]">
           Validation partenaire
         </p>
+
         <h2 className="mt-2 text-3xl font-bold text-[var(--ofna-dark)]">
           Partenaires en attente
         </h2>
+
         <p className="mt-2 text-sm leading-6 text-slate-500">
-          Le super administrateur valide ici les partenaires et traite les
-          demandes de reprise documentaire.
+          Le super administrateur valide ici les partenaires et traite les demandes
+          de reprise documentaire.
         </p>
       </div>
 
@@ -74,13 +93,14 @@ export default function PendingPartnersPage() {
           <h3 className="mt-4 text-xl font-bold text-[var(--ofna-dark)]">
             Aucun partenaire en attente
           </h3>
+
           <p className="mt-2 text-sm text-slate-500">
             Tous les dossiers partenaires semblent actuellement traités.
           </p>
         </div>
       ) : null}
 
-      {partners.length > 0 ? (
+      {!loading && !error && partners.length > 0 ? (
         <div className="grid gap-4">
           {partners.map((partner) => (
             <div
@@ -91,11 +111,12 @@ export default function PendingPartnersPage() {
                 <div>
                   <div className="inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">
                     <Clock3 className="h-3.5 w-3.5" />
-                    {partner.validationStatus}
+                    {getStatusLabel(partner.validationStatus)}
                   </div>
 
                   <h3 className="mt-3 text-xl font-bold text-[var(--ofna-dark)]">
-                    {partner.businessName || `${partner.user.firstName} ${partner.user.lastName}`}
+                    {partner.businessName ||
+                      `${partner.user.firstName} ${partner.user.lastName}`}
                   </h3>
 
                   <p className="mt-1 text-sm text-slate-500">
@@ -103,17 +124,18 @@ export default function PendingPartnersPage() {
                   </p>
 
                   <p className="mt-3 text-sm text-slate-600">
-                    {partner.activityType} · {partner.interventionZone || 'Zone non précisée'}
+                    {partner.activityType} ·{' '}
+                    {partner.interventionZone || 'Zone non précisée'}
                   </p>
                 </div>
 
-                <a
+                <Link
                   href={`/admin/partners/${partner.id}`}
                   className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-[var(--ofna-green)] hover:bg-[var(--ofna-green-soft)] hover:text-[var(--ofna-dark)]"
                 >
                   <Eye className="h-4 w-4" />
                   Voir le dossier
-                </a>
+                </Link>
               </div>
             </div>
           ))}

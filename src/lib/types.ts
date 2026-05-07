@@ -4,7 +4,7 @@ export interface LoginUser {
   firstName: string;
   lastName: string;
   phone: string;
-  email: string;
+  email: string | null;
 }
 
 export interface LoginResponse {
@@ -30,7 +30,7 @@ export interface PartnerUser {
   firstName: string;
   lastName: string;
   phone: string;
-  email: string;
+  email: string | null;
   profilePhotoUrl: string | null;
   accountStatus: string;
   lastLoginAt: string | null;
@@ -64,8 +64,8 @@ export interface PartnerProfile {
   createdAt: string;
   updatedAt: string;
   user: PartnerUser;
-  wallet: PartnerWallet;
-  documents: PartnerDocument[];
+  wallet?: PartnerWallet;
+  documents?: PartnerDocument[];
 }
 
 export interface WalletMission {
@@ -103,7 +103,12 @@ export interface WalletTransaction {
   reference: string | null;
   note: string | null;
   createdAt: string;
-  mission?: WalletMission;
+  mission?: WalletMission | null;
+}
+
+export interface CommissionOrder {
+  id: string;
+  orderStatus?: string;
 }
 
 export interface Commission {
@@ -112,10 +117,12 @@ export interface Commission {
   operationAmount: string;
   commissionRate: string;
   commissionAmount: string;
-  debitedAt: string;
+  debitedAt: string | null;
   note: string | null;
   createdAt: string;
-  mission?: WalletMission;
+  partnerProfile?: PartnerProfile;
+  mission?: WalletMission | null;
+  order?: CommissionOrder | null;
 }
 
 export interface PartnerDashboardStats {
@@ -138,6 +145,12 @@ export interface AdminMission {
   panneType: string | null;
   vehicleType: string | null;
   departureAddress: string;
+  departureLatitude?: string;
+  departureLongitude?: string;
+  destinationAddress: string | null;
+  destinationLatitude: string | null;
+  destinationLongitude: string | null;
+  selectionMode?: string;
 
   proposedAmount: string | null;
   validatedAmount: string | null;
@@ -148,6 +161,7 @@ export interface AdminMission {
 
   acceptedAt: string | null;
   createdAt: string;
+  updatedAt?: string;
   completedAt: string | null;
   cancelledAt: string | null;
 
@@ -156,6 +170,7 @@ export interface AdminMission {
     firstName: string;
     lastName: string;
     phone: string;
+    email?: string;
   };
 
   partnerProfile: {
@@ -180,6 +195,8 @@ export interface AdminPartner {
   description: string | null;
   interventionZone: string | null;
   address: string | null;
+  latitude?: string | null;
+  longitude?: string | null;
   validationStatus: string;
   averageRating: string;
   reviewsCount: number;
@@ -193,7 +210,7 @@ export interface AdminPartner {
     firstName: string;
     lastName: string;
     phone: string;
-    email: string;
+    email: string | null;
   };
   wallet?: {
     id: string;
@@ -234,7 +251,7 @@ export interface AdminCommission {
   operationAmount: string;
   commissionRate: string;
   commissionAmount: string;
-  debitedAt: string;
+  debitedAt: string | null;
   note: string | null;
   createdAt: string;
   partnerProfile: AdminPartner;

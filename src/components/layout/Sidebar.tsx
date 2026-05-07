@@ -78,8 +78,8 @@ export default function Sidebar() {
         </p>
 
         <p className="mt-2 text-sm leading-6 text-slate-700">
-          Gardez votre portefeuille approvisionné pour rester visible et recevoir de
-          nouvelles missions.
+          Gardez votre portefeuille approvisionné pour rester visible, recevoir
+          de nouvelles missions et couvrir les commissions OFNA.
         </p>
       </div>
     </aside>

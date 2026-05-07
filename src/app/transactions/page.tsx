@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   ArrowDownCircle,
@@ -183,11 +183,13 @@ export default function TransactionsPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const loadTransactions = async () => {
+    const loadTransactions = useCallback(async () => {
     try {
       setError(null);
 
-      const response = await api.get<RawWalletTransaction[]>('/wallet-transactions/me');
+      const response = await api.get<RawWalletTransaction[]>(
+        '/wallet-transactions/me',
+      );
 
       const normalizedTransactions = Array.isArray(response.data)
         ? response.data.map(normalizeTransaction)
@@ -200,9 +202,9 @@ export default function TransactionsPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, []);
 
-  useEffect(() => {
+    useEffect(() => {
     const token = getPartnerToken();
 
     if (!token) {
@@ -210,8 +212,14 @@ export default function TransactionsPage() {
       return;
     }
 
-    void loadTransactions();
-  }, []);
+    const timeoutId = window.setTimeout(() => {
+      void loadTransactions();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [loadTransactions]);
 
   const stats = useMemo(() => {
     const credits = transactions.filter(

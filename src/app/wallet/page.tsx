@@ -119,7 +119,6 @@ function getWalletStatusClasses(status: string | null | undefined) {
 }
 
 export default function WalletPage() {
-
   const [summary, setSummary] = useState<WalletSummary | null>(null);
   const [recharges, setRecharges] = useState<WalletRecharge[]>([]);
   const [commissions, setCommissions] = useState<WalletCommission[]>([]);
@@ -147,7 +146,9 @@ export default function WalletPage() {
       if (summaryResult.status === 'fulfilled') {
         setSummary(summaryResult.value.data);
       } else {
-        const walletResult = await api.get<WalletSummary['wallet']>('/wallets/me');
+        const walletResult = await api.get<WalletSummary['wallet']>(
+          '/wallets/me',
+        );
         setSummary({ wallet: walletResult.data });
       }
 
@@ -174,12 +175,18 @@ export default function WalletPage() {
     const token = getPartnerToken();
 
     if (!token) {
-        window.location.replace('/login');
-        return;
+      window.location.replace('/login');
+      return;
     }
 
-    void loadWallet();
-    }, []);
+    const timeoutId = window.setTimeout(() => {
+      void loadWallet();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, []);
 
   const stats = useMemo(() => {
     const totalRecharges = recharges
@@ -199,7 +206,7 @@ export default function WalletPage() {
       totalRecharges,
       totalCommissions,
       pendingRecharges,
-      operationsCount: transactions.length + recharges.length + commissions.length,
+      operationsCount: transactions.length,
     };
   }, [recharges, commissions, transactions]);
 
@@ -310,7 +317,7 @@ export default function WalletPage() {
             />
 
             <StatCard
-              title="Opérations connues"
+              title="Mouvements portefeuille"
               value={String(stats.operationsCount)}
               icon={<BadgeDollarSign className="h-5 w-5" />}
             />
@@ -328,9 +335,9 @@ export default function WalletPage() {
                     Attention au statut de votre portefeuille
                   </h3>
                   <p className="mt-1 text-sm leading-6 text-amber-700">
-                    Si votre portefeuille est vide, faible ou bloqué, votre visibilité
-                    dans l’application peut être limitée. Pensez à effectuer une
-                    recharge si nécessaire.
+                    Si votre portefeuille est vide, faible ou bloqué, votre
+                    visibilité dans l’application peut être limitée. Pensez à
+                    effectuer une recharge si nécessaire.
                   </p>
                 </div>
               </div>

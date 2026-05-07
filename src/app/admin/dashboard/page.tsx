@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
-  AlertTriangle,
   CheckCircle2,
   Clock3,
   CreditCard,

@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Eye, Search, Users } from 'lucide-react';
+
 import AdminShell from '@/components/admin/AdminShell';
 import { api } from '@/lib/api';
+import { getAccessToken, getCurrentUser } from '@/lib/auth';
 
 interface AdminPartner {
   id: string;
@@ -31,6 +33,15 @@ const statusLabelMap: Record<string, string> = {
   documents_a_completer: 'Documents à compléter',
 };
 
+function formatMoney(value: string | number | null | undefined) {
+  const amount = Number(value ?? 0);
+
+  return `${amount.toLocaleString('fr-FR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} FCFA`;
+}
+
 function getStatusClasses(status: string): string {
   switch (status) {
     case 'valide':
@@ -55,20 +66,36 @@ export default function AdminPartnersPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('tous');
 
-  useEffect(() => {
-    const loadPartners = async () => {
-      try {
-        const res = await api.get<AdminPartner[]>('/admin/partners');
-        setPartners(res.data);
-      } catch {
-        setError('Impossible de charger la liste des partenaires.');
-      } finally {
-        setLoading(false);
-      }
-    };
+  const loadPartners = async () => {
+    try {
+      setError(null);
 
+      const res = await api.get<AdminPartner[]>('/admin/partners');
+      setPartners(Array.isArray(res.data) ? res.data : []);
+    } catch {
+      setError('Impossible de charger la liste des partenaires.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+useEffect(() => {
+  const token = getAccessToken();
+  const user = getCurrentUser();
+
+  if (!token || user?.role !== 'admin') {
+    window.location.replace('/login');
+    return;
+  }
+
+  const timeoutId = window.setTimeout(() => {
     void loadPartners();
-  }, []);
+  }, 0);
+
+  return () => {
+    window.clearTimeout(timeoutId);
+  };
+}, []);
 
   const filteredPartners = useMemo(() => {
     return partners.filter((partner) => {
@@ -76,9 +103,11 @@ export default function AdminPartnersPage() {
         partner.businessName ||
         `${partner.user.firstName} ${partner.user.lastName}`;
 
+      const normalizedSearch = search.toLowerCase().trim();
+
       const matchesSearch =
-        displayName.toLowerCase().includes(search.toLowerCase()) ||
-        partner.user.phone.toLowerCase().includes(search.toLowerCase());
+        displayName.toLowerCase().includes(normalizedSearch) ||
+        partner.user.phone.toLowerCase().includes(normalizedSearch);
 
       const matchesStatus =
         statusFilter === 'tous' || partner.validationStatus === statusFilter;
@@ -94,9 +123,11 @@ export default function AdminPartnersPage() {
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[var(--ofna-green)]">
             Gestion des partenaires
           </p>
+
           <h2 className="mt-2 text-3xl font-bold text-[var(--ofna-dark)] md:text-4xl">
             Tous les partenaires
           </h2>
+
           <p className="mt-2 text-sm leading-6 text-slate-500 md:text-base">
             Gérez l’ensemble des partenaires OFNA, leur statut de validation,
             leur disponibilité et leur visibilité.
@@ -112,18 +143,19 @@ export default function AdminPartnersPage() {
       <div className="mb-6 grid gap-4 md:grid-cols-[1fr_240px]">
         <div className="relative">
           <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+
           <input
             type="text"
             placeholder="Rechercher par nom commercial ou téléphone"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(event) => setSearch(event.target.value)}
             className="w-full rounded-2xl border border-slate-200 bg-white py-3 pl-11 pr-4 text-sm text-slate-900 outline-none transition focus:border-[var(--ofna-green)] focus:ring-4 focus:ring-[rgba(22,163,74,0.10)]"
           />
         </div>
 
         <select
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
+          onChange={(event) => setStatusFilter(event.target.value)}
           className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-[var(--ofna-green)] focus:ring-4 focus:ring-[rgba(22,163,74,0.10)]"
         >
           <option value="tous">Tous les statuts</option>
@@ -152,6 +184,7 @@ export default function AdminPartnersPage() {
           <h3 className="text-xl font-bold text-[var(--ofna-dark)]">
             Aucun partenaire trouvé
           </h3>
+
           <p className="mt-2 text-sm text-slate-500">
             Aucun partenaire ne correspond à votre recherche ou au filtre sélectionné.
           </p>
@@ -190,6 +223,7 @@ export default function AdminPartnersPage() {
                           <p className="font-semibold text-[var(--ofna-dark)]">
                             {displayName}
                           </p>
+
                           {!partner.businessName ? (
                             <p className="mt-1 text-xs text-slate-500">
                               Nom personnel
@@ -206,7 +240,8 @@ export default function AdminPartnersPage() {
                             partner.validationStatus,
                           )}`}
                         >
-                          {statusLabelMap[partner.validationStatus] ?? partner.validationStatus}
+                          {statusLabelMap[partner.validationStatus] ??
+                            partner.validationStatus}
                         </span>
                       </td>
 
@@ -219,7 +254,7 @@ export default function AdminPartnersPage() {
                       </td>
 
                       <td className="px-5 py-4 font-medium">
-                        {partner.wallet?.balance ?? '0.00'} FCFA
+                        {formatMoney(partner.wallet?.balance)}
                       </td>
 
                       <td className="px-5 py-4 text-right">

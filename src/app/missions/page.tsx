@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   BadgeDollarSign,
   BriefcaseBusiness,
   CheckCircle2,
   Clock3,
+  Eye,
   MapPin,
   RefreshCcw,
   Route,
@@ -159,7 +160,7 @@ export default function MissionsPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const loadMissions = async () => {
+  const loadMissions = useCallback(async () => {
     try {
       setError(null);
 
@@ -173,8 +174,7 @@ export default function MissionsPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
-
+  }, []);
   useEffect(() => {
     const token = getPartnerToken();
 
@@ -183,8 +183,14 @@ export default function MissionsPage() {
       return;
     }
 
-    void loadMissions();
-  }, []);
+    const timeoutId = window.setTimeout(() => {
+      void loadMissions();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [loadMissions]);
 
   const stats = useMemo(() => {
     const pending = missions.filter(
@@ -238,8 +244,8 @@ export default function MissionsPage() {
           </h2>
 
           <p className="mt-3 max-w-3xl text-base leading-7 text-slate-500">
-            Consultez vos missions reçues, acceptées, terminées ou annulées, ainsi
-            que les montants validés liés à vos prestations.
+            Consultez vos missions reçues, acceptées, terminées ou annulées,
+            ainsi que les montants validés liés à vos prestations.
           </p>
         </div>
 
@@ -316,6 +322,7 @@ export default function MissionsPage() {
                 <h3 className="text-2xl font-black text-[var(--ofna-dark)]">
                   Historique des missions
                 </h3>
+
                 <p className="mt-1 text-sm text-slate-500">
                   {missions.length} mission(s) trouvée(s).
                 </p>
@@ -342,6 +349,7 @@ export default function MissionsPage() {
                       <th className="px-6 py-4">Montant validé</th>
                       <th className="px-6 py-4">Statut</th>
                       <th className="px-6 py-4">Date</th>
+                      <th className="px-6 py-4">Action</th>
                     </tr>
                   </thead>
 
@@ -385,7 +393,8 @@ export default function MissionsPage() {
                           <div className="flex max-w-xs items-start gap-2">
                             <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[var(--ofna-green)]" />
                             <span className="line-clamp-2 text-slate-600">
-                              {mission.departureAddress || 'Adresse non renseignée'}
+                              {mission.departureAddress ||
+                                'Adresse non renseignée'}
                             </span>
                           </div>
                         </td>
@@ -411,6 +420,16 @@ export default function MissionsPage() {
 
                         <td className="px-6 py-4 text-slate-500">
                           {formatDate(mission.createdAt)}
+                        </td>
+
+                        <td className="px-6 py-4">
+                          <Link
+                            href={`/missions/${mission.id}`}
+                            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 transition hover:border-[var(--ofna-green)] hover:bg-[var(--ofna-green-soft)] hover:text-[var(--ofna-green)]"
+                          >
+                            <Eye className="h-4 w-4" />
+                            Gérer
+                          </Link>
                         </td>
                       </tr>
                     ))}

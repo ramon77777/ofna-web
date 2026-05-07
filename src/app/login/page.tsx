@@ -1,9 +1,17 @@
 'use client';
 
 import Image from 'next/image';
+import Link from 'next/link';
 import { FormEvent, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ShieldCheck, BriefcaseBusiness, Wrench, BadgeDollarSign } from 'lucide-react';
+import {
+  BadgeDollarSign,
+  BriefcaseBusiness,
+  ShieldCheck,
+  UserPlus,
+  Wrench,
+} from 'lucide-react';
+
 import { api } from '@/lib/api';
 import { getCurrentUser, isAuthenticated, setSession } from '@/lib/auth';
 import { LoginResponse } from '@/lib/types';
@@ -159,24 +167,34 @@ export default function LoginPage() {
                   id="phone"
                   type="text"
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
+                  onChange={(event) => setPhone(event.target.value)}
                   className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[var(--ofna-green)] focus:bg-white focus:ring-4 focus:ring-[rgba(22,163,74,0.12)]"
                   placeholder="+2250701234567"
                 />
               </div>
 
               <div>
-                <label
-                  htmlFor="password"
-                  className="mb-2 block text-sm font-semibold text-slate-700"
-                >
-                  Mot de passe
-                </label>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <label
+                    htmlFor="password"
+                    className="block text-sm font-semibold text-slate-700"
+                  >
+                    Mot de passe
+                  </label>
+
+                  <Link
+                    href="/forgot-password"
+                    className="text-sm font-semibold text-[var(--ofna-green)] transition hover:text-[var(--ofna-green-dark)]"
+                  >
+                    Mot de passe oublié ?
+                  </Link>
+                </div>
+
                 <input
                   id="password"
                   type="password"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(event) => setPassword(event.target.value)}
                   className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[var(--ofna-green)] focus:bg-white focus:ring-4 focus:ring-[rgba(22,163,74,0.12)]"
                   placeholder="Votre mot de passe"
                 />
@@ -196,6 +214,31 @@ export default function LoginPage() {
                 {loading ? 'Connexion...' : 'Se connecter'}
               </button>
             </form>
+
+            <div className="mt-6 rounded-3xl border border-emerald-100 bg-emerald-50/70 p-4">
+              <div className="flex items-start gap-3">
+                <div className="rounded-2xl bg-white p-2 text-[var(--ofna-green)]">
+                  <UserPlus className="h-5 w-5" />
+                </div>
+
+                <div>
+                  <p className="font-bold text-[var(--ofna-dark)]">
+                    Nouveau partenaire ?
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">
+                    Créez votre compte partenaire, complétez votre profil et
+                    soumettez vos documents à l’administration OFNA.
+                  </p>
+
+                  <Link
+                    href="/register"
+                    className="mt-3 inline-flex rounded-2xl bg-[var(--ofna-green)] px-4 py-2 text-sm font-bold text-white transition hover:bg-[var(--ofna-green-dark)]"
+                  >
+                    Créer un compte partenaire
+                  </Link>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
       </div>

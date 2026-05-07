@@ -68,3 +68,20 @@ export function getPartnerToken(): string | null {
 export function removePartnerToken() {
   clearSession();
 }
+
+
+export function updateCurrentUser(partialUser: Partial<LoginUser>) {
+  if (typeof window === 'undefined') return;
+
+  const currentUser = getCurrentUser();
+
+  if (!currentUser) return;
+
+  localStorage.setItem(
+    CURRENT_USER_KEY,
+    JSON.stringify({
+      ...currentUser,
+      ...partialUser,
+    }),
+  );
+}

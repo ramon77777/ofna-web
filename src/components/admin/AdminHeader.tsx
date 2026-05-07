@@ -1,16 +1,14 @@
 'use client';
 
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
 import { LogOut, Shield } from 'lucide-react';
+
 import { clearSession } from '@/lib/auth';
 
 export default function AdminHeader() {
-  const router = useRouter();
-
   const handleLogout = () => {
     clearSession();
-    router.replace('/login');
+    window.location.replace('/login');
   };
 
   return (
@@ -31,6 +29,7 @@ export default function AdminHeader() {
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">
             OFNA Admin
           </p>
+
           <h1 className="mt-1 flex items-center gap-2 text-xl font-bold text-[var(--ofna-dark)]">
             <Shield className="h-5 w-5 text-[var(--ofna-green)]" />
             Super administration
@@ -39,6 +38,7 @@ export default function AdminHeader() {
       </div>
 
       <button
+        type="button"
         onClick={handleLogout}
         className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
       >

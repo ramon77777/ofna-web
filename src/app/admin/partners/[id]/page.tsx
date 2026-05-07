@@ -1,20 +1,32 @@
 'use client';
 
-import { FormEvent, ReactNode, useEffect, useMemo, useState } from 'react';
+import {
+  FormEvent,
+  ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
   ArrowLeft,
   BadgeCheck,
   BadgePercent,
   CreditCard,
+  Eye,
+  EyeOff,
   FileWarning,
   MailWarning,
   MapPin,
   Phone,
   ReceiptText,
+  ToggleLeft,
+  ToggleRight,
   User,
   Wallet,
 } from 'lucide-react';
+
 import AdminShell from '@/components/admin/AdminShell';
 import { api } from '@/lib/api';
 import { getAccessToken, getCurrentUser } from '@/lib/auth';
@@ -59,12 +71,26 @@ interface AdminFinanceResponse {
   recentRecharges: AdminRecharge[];
 }
 
-function formatMoney(value: string | null | undefined) {
-  if (!value) return '0 FCFA';
+interface AdminPartnerDocument {
+  id: string;
+  documentType: string;
+  fileUrl: string;
+  documentStatus: string;
+  adminComment: string | null;
+  submittedAt: string;
+  verifiedAt: string | null;
+}
+
+function formatMoney(value: string | number | null | undefined) {
+  if (value === null || value === undefined || value === '') {
+    return '0 FCFA';
+  }
 
   const amount = Number(value);
 
-  if (Number.isNaN(amount)) return `${value} FCFA`;
+  if (Number.isNaN(amount)) {
+    return `${value} FCFA`;
+  }
 
   return `${amount.toLocaleString('fr-FR', {
     minimumFractionDigits: 2,
@@ -88,11 +114,107 @@ function formatDateTime(value: string | null | undefined) {
   });
 }
 
+function getValidationStatusLabel(status: string | null | undefined) {
+  const labels: Record<string, string> = {
+    en_attente: 'En attente',
+    en_cours_verification: 'En cours de vérification',
+    valide: 'Validé',
+    rejete: 'Rejeté',
+    documents_a_completer: 'Documents à compléter',
+  };
+
+  return labels[String(status ?? '')] ?? status ?? 'Non défini';
+}
+
+function getDocumentTypeLabel(type: string | null | undefined) {
+  const labels: Record<string, string> = {
+    carte_identite: 'Carte d’identité',
+    passeport: 'Passeport',
+    assurance: 'Assurance',
+    document_legal: 'Document légal',
+  };
+
+  return labels[String(type ?? '')] ?? type ?? 'Document';
+}
+
+function getDocumentStatusLabel(status: string | null | undefined) {
+  const labels: Record<string, string> = {
+    soumis: 'Soumis',
+    valide: 'Validé',
+    rejete: 'Rejeté',
+    a_reprendre: 'À reprendre',
+  };
+
+  return labels[String(status ?? '')] ?? status ?? 'Non défini';
+}
+
+function getDocumentStatusBadgeClasses(status: string | null | undefined) {
+  const normalized = String(status ?? '').toLowerCase();
+
+  if (normalized === 'valide') {
+    return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+  }
+
+  if (normalized === 'a_reprendre' || normalized === 'soumis') {
+    return 'border-amber-200 bg-amber-50 text-amber-700';
+  }
+
+  if (normalized === 'rejete') {
+    return 'border-red-200 bg-red-50 text-red-700';
+  }
+
+  return 'border-slate-200 bg-slate-50 text-slate-600';
+}
+
+function getDocumentFileUrl(fileUrl: string) {
+  if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) {
+    return fileUrl;
+  }
+
+  const apiBaseUrl = api.defaults.baseURL ?? '';
+  const cleanApiBaseUrl = apiBaseUrl
+    .replace(/\/api\/v1\/?$/, '')
+    .replace(/\/$/, '');
+  const cleanFileUrl = fileUrl.startsWith('/') ? fileUrl : `/${fileUrl}`;
+
+  return `${cleanApiBaseUrl}${cleanFileUrl}`;
+}
+
+function getTransactionTypeLabel(type: string | null | undefined) {
+  const labels: Record<string, string> = {
+    credit: 'Crédit',
+    debit: 'Débit',
+  };
+
+  return labels[String(type ?? '').toLowerCase()] ?? type ?? 'Transaction';
+}
+
+function getTransactionSourceLabel(source: string | null | undefined) {
+  const labels: Record<string, string> = {
+    recharge: 'Recharge',
+    commission: 'Commission',
+    mission: 'Mission',
+    order: 'Commande',
+  };
+
+  return labels[String(source ?? '').toLowerCase()] ?? source ?? 'Source';
+}
+
+function getRechargeStatusLabel(status: string | null | undefined) {
+  const labels: Record<string, string> = {
+    en_attente: 'En attente',
+    reussie: 'Réussie',
+    echouee: 'Échouée',
+  };
+
+  return labels[String(status ?? '')] ?? status ?? 'Non défini';
+}
+
 export default function AdminPartnerDetailsPage() {
   const params = useParams();
   const router = useRouter();
 
-  const partnerId = params.id as string;
+  const partnerId = String(params.id ?? '');
 
   const [partner, setPartner] = useState<PartnerProfile | null>(null);
   const [finance, setFinance] = useState<AdminFinanceResponse | null>(null);
@@ -106,9 +228,10 @@ export default function AdminPartnerDetailsPage() {
   const [documentsMessage, setDocumentsMessage] = useState('');
   const [savingValidation, setSavingValidation] = useState(false);
   const [savingDocuments, setSavingDocuments] = useState(false);
+  const [savingVisibility, setSavingVisibility] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
 
-  const loadPartner = async () => {
+  const loadPartner = useCallback(async () => {
     try {
       setError(null);
 
@@ -123,9 +246,9 @@ export default function AdminPartnerDetailsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [partnerId]);
 
-  const loadFinance = async () => {
+  const loadFinance = useCallback(async () => {
     try {
       const response = await api.get<AdminFinanceResponse>('/admin/finance');
       setFinance(response.data);
@@ -134,20 +257,33 @@ export default function AdminPartnerDetailsPage() {
     } finally {
       setFinanceLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     const token = getAccessToken();
     const user = getCurrentUser();
 
     if (!token || user?.role !== 'admin') {
-      router.replace('/login');
+      window.location.replace('/login');
       return;
     }
 
-    void loadPartner();
-    void loadFinance();
-  }, [partnerId, router]);
+    const timeoutId = window.setTimeout(() => {
+      if (!partnerId) {
+        setError('Identifiant partenaire invalide.');
+        setLoading(false);
+        setFinanceLoading(false);
+        return;
+      }
+
+      void loadPartner();
+      void loadFinance();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [partnerId, loadPartner, loadFinance]);
 
   const partnerCommissions = useMemo(() => {
     return (finance?.recentCommissions ?? []).filter(
@@ -168,23 +304,41 @@ export default function AdminPartnerDetailsPage() {
   }, [finance, partnerId]);
 
   const totalCommission = useMemo(() => {
-    return partnerCommissions
-      .reduce((total, commission) => {
-        return total + Number(commission.commissionAmount || 0);
-      }, 0)
-      .toFixed(2);
+    return partnerCommissions.reduce((total, commission) => {
+      return total + Number(commission.commissionAmount || 0);
+    }, 0);
   }, [partnerCommissions]);
 
   const totalRecharges = useMemo(() => {
-    return partnerRecharges
-      .reduce((total, recharge) => {
-        return total + Number(recharge.amount || 0);
-      }, 0)
-      .toFixed(2);
+    return partnerRecharges.reduce((total, recharge) => {
+      return total + Number(recharge.amount || 0);
+    }, 0);
   }, [partnerRecharges]);
+
+  const partnerDisplayName = partner
+    ? partner.businessName ||
+      `${partner.user.firstName} ${partner.user.lastName}`.trim()
+    : 'Partenaire';
+
+  const partnerDocuments = useMemo(() => {
+    return partner?.documents ?? [];
+  }, [partner?.documents]);
+
+  const allDocumentsValidated = useMemo(() => {
+    const documents = partner?.documents ?? [];
+
+    return (
+      documents.length > 0 &&
+      documents.every((document) => document.documentStatus === 'valide')
+    );
+  }, [partner]);
+
+  const canToggleVisibility =
+    partner?.validationStatus === 'valide' || allDocumentsValidated;
 
   const handleValidate = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
     setSavingValidation(true);
     setSuccess(null);
     setError(null);
@@ -196,6 +350,7 @@ export default function AdminPartnerDetailsPage() {
       });
 
       setSuccess('Le dossier partenaire a été mis à jour.');
+      setComment('');
       await loadPartner();
     } catch {
       setError('Impossible de mettre à jour la validation du partenaire.');
@@ -206,6 +361,12 @@ export default function AdminPartnerDetailsPage() {
 
   const handleRequestDocuments = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    if (!documentsMessage.trim()) {
+      setError('Veuillez préciser les documents à reprendre.');
+      return;
+    }
+
     setSavingDocuments(true);
     setSuccess(null);
     setError(null);
@@ -222,6 +383,34 @@ export default function AdminPartnerDetailsPage() {
       setError('Impossible de demander la reprise des documents.');
     } finally {
       setSavingDocuments(false);
+    }
+  };
+
+  const handleToggleVisibility = async () => {
+    if (!partner) return;
+
+    setSavingVisibility(true);
+    setSuccess(null);
+    setError(null);
+
+    try {
+      await api.patch(`/admin/partners/${partnerId}/visibility`, {
+        isVisible: !partner.isVisible,
+      });
+
+      setSuccess(
+        partner.isVisible
+          ? 'Le partenaire a été masqué avec succès.'
+          : 'Le partenaire est maintenant visible.',
+      );
+
+      await loadPartner();
+    } catch {
+      setError(
+        'Impossible de modifier la visibilité. Vérifiez que le partenaire est validé.',
+      );
+    } finally {
+      setSavingVisibility(false);
     }
   };
 
@@ -262,8 +451,7 @@ export default function AdminPartnerDetailsPage() {
             </p>
 
             <h2 className="mt-2 text-3xl font-bold text-[var(--ofna-dark)]">
-              {partner.businessName ||
-                `${partner.user.firstName} ${partner.user.lastName}`}
+              {partnerDisplayName}
             </h2>
 
             <p className="mt-2 text-sm leading-6 text-slate-500">
@@ -309,7 +497,7 @@ export default function AdminPartnerDetailsPage() {
                   <InfoItem
                     icon={<User className="h-4 w-4" />}
                     label="Nom complet"
-                    value={`${partner.user.firstName} ${partner.user.lastName}`}
+                    value={`${partner.user.firstName} ${partner.user.lastName}`.trim()}
                   />
 
                   <InfoItem
@@ -321,7 +509,7 @@ export default function AdminPartnerDetailsPage() {
                   <InfoItem
                     icon={<MailWarning className="h-4 w-4" />}
                     label="Email"
-                    value={partner.user.email}
+                    value={partner.user.email || 'Non renseigné'}
                   />
 
                   <InfoItem
@@ -335,6 +523,7 @@ export default function AdminPartnerDetailsPage() {
                   <p className="text-sm font-semibold text-slate-700">
                     Description
                   </p>
+
                   <p className="mt-2 text-sm leading-6 text-slate-600">
                     {partner.description || 'Aucune description fournie.'}
                   </p>
@@ -342,145 +531,148 @@ export default function AdminPartnerDetailsPage() {
               </section>
 
               <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-                <h3 className="text-lg font-bold text-[var(--ofna-dark)]">
-                  Documents partenaire
-                </h3>
+                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <h3 className="text-lg font-bold text-[var(--ofna-dark)]">
+                      Documents partenaire
+                    </h3>
+
+                    <p className="mt-1 text-sm leading-6 text-slate-500">
+                      Consultez chaque document, validez-le ou demandez une
+                      reprise avec un commentaire visible par le partenaire.
+                    </p>
+                  </div>
+
+                  <span className="rounded-full bg-slate-50 px-3 py-1 text-xs font-bold text-slate-500">
+                    {partnerDocuments.length} document(s)
+                  </span>
+                </div>
 
                 <div className="mt-4 space-y-4">
-                  {partner.documents.length === 0 ? (
+                  {partnerDocuments.length === 0 ? (
                     <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">
                       Aucun document disponible.
                     </div>
                   ) : (
-                    partner.documents.map((document) => (
-                      <div
+                    partnerDocuments.map((document) => (
+                      <AdminDocumentItem
                         key={document.id}
-                        className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
-                      >
-                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                          <div>
-                            <p className="text-sm font-semibold text-[var(--ofna-dark)]">
-                              {document.documentType}
-                            </p>
-
-                            <p className="mt-1 text-sm text-slate-500">
-                              Statut : {document.documentStatus}
-                            </p>
-
-                            {document.adminComment ? (
-                              <p className="mt-2 text-sm text-amber-700">
-                                Commentaire admin : {document.adminComment}
-                              </p>
-                            ) : null}
-                          </div>
-
-                          <a
-                            href={document.fileUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-[var(--ofna-green)] hover:bg-[var(--ofna-green-soft)]"
-                          >
-                            Voir le fichier
-                          </a>
-                        </div>
-                      </div>
+                        document={document}
+                        partnerId={partnerId}
+                        onUpdated={async () => {
+                          setSuccess('Le statut du document a été mis à jour.');
+                          await loadPartner();
+                        }}
+                        onError={(message) => {
+                          setError(message);
+                        }}
+                      />
                     ))
                   )}
                 </div>
               </section>
 
-              <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-                <h3 className="text-lg font-bold text-[var(--ofna-dark)]">
-                  Activité financière récente
-                </h3>
+              <div className="grid gap-6 2xl:grid-cols-2">
+                <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+                  <h3 className="text-lg font-bold text-[var(--ofna-dark)]">
+                    Activité financière récente
+                  </h3>
 
-                {financeLoading ? (
-                  <p className="mt-4 text-sm text-slate-500">
-                    Chargement des données financières...
-                  </p>
-                ) : null}
+                  {financeLoading ? (
+                    <p className="mt-4 text-sm text-slate-500">
+                      Chargement des données financières...
+                    </p>
+                  ) : null}
 
-                {!financeLoading && partnerTransactions.length === 0 ? (
-                  <div className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">
-                    Aucune transaction récente trouvée pour ce partenaire.
-                  </div>
-                ) : null}
+                  {!financeLoading && partnerTransactions.length === 0 ? (
+                    <div className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">
+                      Aucune transaction récente trouvée pour ce partenaire.
+                    </div>
+                  ) : null}
 
-                <div className="mt-4 space-y-3">
-                  {partnerTransactions.map((transaction) => (
-                    <div
-                      key={transaction.id}
-                      className="rounded-2xl border border-slate-100 bg-slate-50 p-4"
-                    >
-                      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                        <div>
-                          <p className="font-semibold text-[var(--ofna-dark)]">
-                            {transaction.label}
-                          </p>
+                  <div className="mt-4 space-y-3">
+                    {partnerTransactions.map((transaction) => (
+                      <div
+                        key={transaction.id}
+                        className="rounded-2xl border border-slate-100 bg-slate-50 p-4"
+                      >
+                        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                          <div>
+                            <p className="font-semibold text-[var(--ofna-dark)]">
+                              {transaction.label || 'Transaction portefeuille'}
+                            </p>
 
-                          <p className="mt-1 text-xs text-slate-500">
-                            {transaction.transactionType} ·{' '}
-                            {transaction.sourceType} ·{' '}
-                            {formatDateTime(transaction.createdAt)}
+                            <p className="mt-1 text-xs text-slate-500">
+                              {getTransactionTypeLabel(
+                                transaction.transactionType,
+                              )}{' '}
+                              ·{' '}
+                              {getTransactionSourceLabel(
+                                transaction.sourceType,
+                              )}{' '}
+                              · {formatDateTime(transaction.createdAt)}
+                            </p>
+                          </div>
+
+                          <p className="font-bold text-[var(--ofna-dark)]">
+                            {formatMoney(transaction.amount)}
                           </p>
                         </div>
 
-                        <p className="font-bold text-[var(--ofna-dark)]">
-                          {formatMoney(transaction.amount)}
-                        </p>
-                      </div>
-
-                      <div className="mt-3 grid gap-2 text-xs text-slate-500 md:grid-cols-2">
-                        <p>Avant : {formatMoney(transaction.balanceBefore)}</p>
-                        <p>Après : {formatMoney(transaction.balanceAfter)}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
-
-              <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-                <h3 className="text-lg font-bold text-[var(--ofna-dark)]">
-                  Commissions du partenaire
-                </h3>
-
-                {!financeLoading && partnerCommissions.length === 0 ? (
-                  <div className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">
-                    Aucune commission récente trouvée.
-                  </div>
-                ) : null}
-
-                <div className="mt-4 space-y-3">
-                  {partnerCommissions.map((commission) => (
-                    <div
-                      key={commission.id}
-                      className="rounded-2xl border border-slate-100 bg-slate-50 p-4"
-                    >
-                      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                        <div>
-                          <p className="font-semibold text-[var(--ofna-dark)]">
-                            Commission {commission.operationType}
+                        <div className="mt-3 grid gap-2 text-xs text-slate-500 md:grid-cols-2">
+                          <p>
+                            Avant : {formatMoney(transaction.balanceBefore)}
                           </p>
+                          <p>Après : {formatMoney(transaction.balanceAfter)}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
 
-                          <p className="mt-1 text-xs text-slate-500">
-                            Taux : {commission.commissionRate}% ·{' '}
-                            {formatDateTime(commission.createdAt)}
+                <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+                  <h3 className="text-lg font-bold text-[var(--ofna-dark)]">
+                    Commissions du partenaire
+                  </h3>
+
+                  {!financeLoading && partnerCommissions.length === 0 ? (
+                    <div className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">
+                      Aucune commission récente trouvée.
+                    </div>
+                  ) : null}
+
+                  <div className="mt-4 space-y-3">
+                    {partnerCommissions.map((commission) => (
+                      <div
+                        key={commission.id}
+                        className="rounded-2xl border border-slate-100 bg-slate-50 p-4"
+                      >
+                        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                          <div>
+                            <p className="font-semibold text-[var(--ofna-dark)]">
+                              Commission {commission.operationType}
+                            </p>
+
+                            <p className="mt-1 text-xs text-slate-500">
+                              Taux : {commission.commissionRate}% ·{' '}
+                              {formatDateTime(commission.createdAt)}
+                            </p>
+                          </div>
+
+                          <p className="font-bold text-[var(--ofna-dark)]">
+                            {formatMoney(commission.commissionAmount)}
                           </p>
                         </div>
 
-                        <p className="font-bold text-[var(--ofna-dark)]">
-                          {formatMoney(commission.commissionAmount)}
+                        <p className="mt-2 text-sm text-slate-500">
+                          Montant opération :{' '}
+                          {formatMoney(commission.operationAmount)}
                         </p>
                       </div>
-
-                      <p className="mt-2 text-sm text-slate-500">
-                        Montant opération :{' '}
-                        {formatMoney(commission.operationAmount)}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </section>
+                    ))}
+                  </div>
+                </section>
+              </div>
             </div>
 
             <aside className="space-y-6">
@@ -492,7 +684,7 @@ export default function AdminPartnerDetailsPage() {
                 <div className="mt-4 space-y-3">
                   <StatusLine
                     label="Validation"
-                    value={partner.validationStatus}
+                    value={getValidationStatusLabel(partner.validationStatus)}
                   />
 
                   <StatusLine
@@ -515,6 +707,63 @@ export default function AdminPartnerDetailsPage() {
                     value={partner.wallet?.walletStatus ?? '—'}
                   />
                 </div>
+
+                {!partner.isVisible ? (
+                  <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex items-start gap-3">
+                      <div
+                        className={`rounded-2xl p-2 ${
+                          partner.isVisible
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : 'bg-amber-100 text-amber-700'
+                        }`}
+                      >
+                        {partner.isVisible ? (
+                          <Eye className="h-5 w-5" />
+                        ) : (
+                          <EyeOff className="h-5 w-5" />
+                        )}
+                      </div>
+
+                      <div className="flex-1">
+                        <p className="font-bold text-[var(--ofna-dark)]">
+                          Contrôle de visibilité
+                        </p>
+
+                        <p className="mt-1 text-sm leading-6 text-slate-600">
+                          {partner.isVisible
+                            ? 'Ce partenaire est actuellement visible dans l’application.'
+                            : canToggleVisibility
+                              ? 'Tous les documents sont validés. Vous pouvez rendre ce partenaire visible.'
+                              : 'Le partenaire doit être validé ou avoir tous ses documents validés avant de pouvoir être rendu visible.'}
+                        </p>
+
+                        <button
+                          type="button"
+                          onClick={handleToggleVisibility}
+                          disabled={savingVisibility || !canToggleVisibility}
+                          className={`mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                            partner.isVisible
+                              ? 'border border-slate-200 bg-white text-slate-700 hover:border-red-200 hover:bg-red-50 hover:text-red-600'
+                              : 'bg-[var(--ofna-green)] text-white hover:bg-[var(--ofna-green-dark)]'
+                          }`}
+                        >
+                          {partner.isVisible ? (
+                            <ToggleRight className="h-4 w-4" />
+                          ) : (
+                            <ToggleLeft className="h-4 w-4" />
+                          )}
+
+                          {savingVisibility
+                            ? 'Mise à jour...'
+                            : partner.isVisible
+                              ? 'Masquer le partenaire'
+                              : 'Rendre visible'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
               </section>
 
               <form
@@ -523,6 +772,7 @@ export default function AdminPartnerDetailsPage() {
               >
                 <div className="flex items-center gap-2">
                   <BadgeCheck className="h-5 w-5 text-[var(--ofna-green)]" />
+
                   <h3 className="text-lg font-bold text-[var(--ofna-dark)]">
                     Validation du partenaire
                   </h3>
@@ -581,6 +831,7 @@ export default function AdminPartnerDetailsPage() {
               >
                 <div className="flex items-center gap-2">
                   <FileWarning className="h-5 w-5 text-amber-600" />
+
                   <h3 className="text-lg font-bold text-amber-900">
                     Demande de reprise documentaire
                   </h3>
@@ -639,7 +890,10 @@ export default function AdminPartnerDetailsPage() {
                           </p>
 
                           <p className="mt-1 text-xs text-slate-500">
-                            {recharge.transactionStatus} ·{' '}
+                            {getRechargeStatusLabel(
+                              recharge.transactionStatus,
+                            )}{' '}
+                            ·{' '}
                             {formatDateTime(
                               recharge.rechargedAt ?? recharge.createdAt,
                             )}
@@ -702,7 +956,7 @@ function InfoItem({
       </div>
 
       <p className="mt-2 text-sm font-semibold text-[var(--ofna-dark)]">
-        {value}
+        {value || 'Non renseigné'}
       </p>
     </div>
   );
@@ -712,9 +966,154 @@ function StatusLine({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-4 rounded-2xl bg-slate-50 px-4 py-3">
       <span className="text-sm font-medium text-slate-600">{label}</span>
+
       <span className="text-right text-sm font-semibold text-[var(--ofna-dark)]">
         {value}
       </span>
+    </div>
+  );
+}
+
+function AdminDocumentItem({
+  document,
+  partnerId,
+  onUpdated,
+  onError,
+}: {
+  document: AdminPartnerDocument;
+  partnerId: string;
+  onUpdated: () => Promise<void>;
+  onError: (message: string) => void;
+}) {
+  const [status, setStatus] = useState(document.documentStatus || 'soumis');
+  const [adminComment, setAdminComment] = useState(document.adminComment ?? '');
+  const [saving, setSaving] = useState(false);
+
+  const handleUpdateDocumentStatus = async (
+    nextStatus: 'valide' | 'rejete' | 'a_reprendre',
+  ) => {
+    if (nextStatus === 'a_reprendre' && !adminComment.trim()) {
+      onError(
+        'Veuillez renseigner un commentaire avant de demander la reprise du document.',
+      );
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      await api.patch(
+        `/admin/partners/${partnerId}/documents/${document.id}/status`,
+        {
+          documentStatus: nextStatus,
+          adminComment: adminComment.trim() || undefined,
+        },
+      );
+
+      setStatus(nextStatus);
+      await onUpdated();
+    } catch {
+      onError('Impossible de mettre à jour ce document.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-bold text-[var(--ofna-dark)]">
+              {getDocumentTypeLabel(document.documentType)}
+            </p>
+
+            <span
+              className={`rounded-full border px-3 py-1 text-xs font-bold ${getDocumentStatusBadgeClasses(
+                status,
+              )}`}
+            >
+              {getDocumentStatusLabel(status)}
+            </span>
+          </div>
+
+          <p className="mt-2 text-xs text-slate-500">
+            Soumis le : {formatDateTime(document.submittedAt)}
+          </p>
+
+          {document.verifiedAt ? (
+            <p className="mt-1 text-xs text-slate-500">
+              Vérifié le : {formatDateTime(document.verifiedAt)}
+            </p>
+          ) : null}
+
+          {document.adminComment ? (
+            <p className="mt-3 rounded-2xl bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-700">
+              Commentaire actuel : {document.adminComment}
+            </p>
+          ) : null}
+        </div>
+
+        {document.fileUrl ? (
+          <a
+            href={getDocumentFileUrl(document.fileUrl)}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex justify-center rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-[var(--ofna-green)] hover:bg-[var(--ofna-green-soft)]"
+          >
+            Voir le fichier
+          </a>
+        ) : (
+          <span className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-400">
+            Aucun fichier
+          </span>
+        )}
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+        <label className="block">
+          <span className="mb-2 block text-sm font-semibold text-slate-700">
+            Commentaire admin
+          </span>
+
+          <textarea
+            value={adminComment}
+            onChange={(event) => setAdminComment(event.target.value)}
+            rows={3}
+            className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-[var(--ofna-green)] focus:bg-white"
+            placeholder="Expliquer la décision, surtout si le document est à reprendre."
+          />
+        </label>
+
+        <div className="mt-4 flex flex-col gap-2 md:flex-row">
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => handleUpdateDocumentStatus('valide')}
+            className="inline-flex flex-1 justify-center rounded-2xl bg-[var(--ofna-green)] px-4 py-3 text-sm font-bold text-white transition hover:bg-[var(--ofna-green-dark)] disabled:opacity-60"
+          >
+            {saving ? 'Traitement...' : 'Valider'}
+          </button>
+
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => handleUpdateDocumentStatus('a_reprendre')}
+            className="inline-flex flex-1 justify-center rounded-2xl bg-amber-500 px-4 py-3 text-sm font-bold text-white transition hover:bg-amber-600 disabled:opacity-60"
+          >
+            Demander reprise
+          </button>
+
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => handleUpdateDocumentStatus('rejete')}
+            className="inline-flex flex-1 justify-center rounded-2xl bg-red-500 px-4 py-3 text-sm font-bold text-white transition hover:bg-red-600 disabled:opacity-60"
+          >
+            Rejeter
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

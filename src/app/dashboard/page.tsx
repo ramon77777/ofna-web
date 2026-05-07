@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
-  AlertTriangle,
   BadgeDollarSign,
   BriefcaseBusiness,
   ShieldCheck,
@@ -71,7 +70,13 @@ export default function DashboardPage() {
       return;
     }
 
-    void loadDashboard();
+    const timeoutId = window.setTimeout(() => {
+      void loadDashboard();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
   }, []);
 
   return (
@@ -170,7 +175,6 @@ export default function DashboardPage() {
                 </p>
 
                 <div className="mt-4 grid gap-3">
-                  <QuickAction label="Voir mes missions" href="/missions" />
                   <QuickAction label="Voir le portefeuille" href="/wallet" />
                   <QuickAction
                     label="Créer une recharge"
@@ -193,9 +197,6 @@ export default function DashboardPage() {
               ) ? (
                 <div className="rounded-[28px] border border-amber-200 bg-amber-50 p-5 shadow-sm">
                   <div className="flex items-start gap-3">
-                    <div className="rounded-2xl bg-amber-100 p-2 text-amber-600">
-                      <AlertTriangle className="h-5 w-5" />
-                    </div>
 
                     <div>
                       <h3 className="text-base font-bold text-amber-900">

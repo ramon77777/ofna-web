@@ -9,8 +9,10 @@ import {
   WalletCards,
   XCircle,
 } from 'lucide-react';
+
 import AdminShell from '@/components/admin/AdminShell';
 import { api } from '@/lib/api';
+import { getAccessToken, getCurrentUser } from '@/lib/auth';
 
 type RechargeStatus = 'en_attente' | 'reussie' | 'echouee';
 
@@ -22,7 +24,7 @@ interface AdminRecharge {
   transactionStatus: RechargeStatus;
   rechargedAt: string | null;
   createdAt: string;
-  wallet: {
+  wallet?: {
     id: string;
     balance: string;
     walletStatus: string;
@@ -54,7 +56,7 @@ function formatDate(value: string | null | undefined) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '—';
 
-  return date.toLocaleDateString('fr-FR', {
+  return date.toLocaleString('fr-FR', {
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
@@ -64,14 +66,31 @@ function formatDate(value: string | null | undefined) {
 }
 
 function getPartnerName(recharge: AdminRecharge) {
-  const partner = recharge.wallet.partnerProfile;
+  const partner = recharge.wallet?.partnerProfile;
 
   if (!partner) return 'Partenaire inconnu';
 
-  return (
-    partner.businessName ??
-    `${partner.user.firstName} ${partner.user.lastName}`
-  );
+  const personalName = `${partner.user.firstName ?? ''} ${
+    partner.user.lastName ?? ''
+  }`.trim();
+
+  return partner.businessName || personalName || 'Partenaire inconnu';
+}
+
+function getPartnerPhone(recharge: AdminRecharge) {
+  return recharge.wallet?.partnerProfile?.user.phone ?? '—';
+}
+
+function getRechargeModeLabel(mode: string | null | undefined) {
+  const labels: Record<string, string> = {
+    wave: 'Wave',
+    orange_money: 'Orange Money',
+    mtn_money: 'MTN Money',
+    moov_money: 'Moov Money',
+    espece: 'Espèces',
+  };
+
+  return labels[String(mode ?? '').toLowerCase()] ?? mode ?? 'Non précisé';
 }
 
 function getStatusLabel(status: RechargeStatus) {
@@ -109,29 +128,57 @@ function getStatusIcon(status: RechargeStatus) {
 export default function AdminRechargesPage() {
   const [recharges, setRecharges] = useState<AdminRecharge[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
+
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | RechargeStatus>(
     'all',
   );
+
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
   const loadRecharges = async () => {
     try {
       setError(null);
-      const response = await api.get<AdminRecharge[]>('/wallet-recharges/admin');
-      setRecharges(response.data);
+
+      const response = await api.get<AdminRecharge[]>(
+        '/wallet-recharges/admin',
+      );
+
+      setRecharges(Array.isArray(response.data) ? response.data : []);
     } catch {
       setError('Impossible de charger les recharges.');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
   useEffect(() => {
-    void loadRecharges();
+    const token = getAccessToken();
+    const user = getCurrentUser();
+
+    if (!token || user?.role !== 'admin') {
+      window.location.replace('/login');
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      void loadRecharges();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
   }, []);
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    setSuccess(null);
+    void loadRecharges();
+  };
 
   const updateRechargeStatus = async (
     rechargeId: string,
@@ -148,13 +195,15 @@ export default function AdminRechargesPage() {
 
       setSuccess(
         transactionStatus === 'reussie'
-          ? 'Recharge validée avec succès.'
+          ? 'Recharge validée avec succès. Le portefeuille partenaire a été crédité.'
           : 'Recharge rejetée avec succès.',
       );
 
       await loadRecharges();
     } catch {
-      setError('Impossible de mettre à jour le statut de cette recharge.');
+      setError(
+        'Impossible de mettre à jour le statut de cette recharge. Vérifiez que la recharge est toujours en attente.',
+      );
     } finally {
       setProcessingId(null);
     }
@@ -165,15 +214,16 @@ export default function AdminRechargesPage() {
 
     return recharges.filter((recharge) => {
       const partnerName = getPartnerName(recharge).toLowerCase();
-      const phone =
-        recharge.wallet.partnerProfile?.user.phone.toLowerCase() ?? '';
+      const phone = getPartnerPhone(recharge).toLowerCase();
       const reference = recharge.transactionReference?.toLowerCase() ?? '';
+      const mode = getRechargeModeLabel(recharge.rechargeMode).toLowerCase();
 
       const matchesSearch =
         !normalizedSearch ||
         partnerName.includes(normalizedSearch) ||
         phone.includes(normalizedSearch) ||
-        reference.includes(normalizedSearch);
+        reference.includes(normalizedSearch) ||
+        mode.includes(normalizedSearch);
 
       const matchesStatus =
         statusFilter === 'all' || recharge.transactionStatus === statusFilter;
@@ -188,8 +238,13 @@ export default function AdminRechargesPage() {
       0,
     );
 
+    const successfulAmount = recharges
+      .filter((recharge) => recharge.transactionStatus === 'reussie')
+      .reduce((sum, recharge) => sum + Number(recharge.amount || 0), 0);
+
     return {
       totalAmount,
+      successfulAmount,
       total: recharges.length,
       pending: recharges.filter(
         (recharge) => recharge.transactionStatus === 'en_attente',
@@ -214,13 +269,26 @@ export default function AdminRechargesPage() {
 
           <p className="mt-3 max-w-3xl text-base leading-7 text-slate-500">
             Validez ou rejetez les recharges portefeuille déclarées par les
-            partenaires.
+            partenaires. Une recharge validée crédite automatiquement le
+            portefeuille du partenaire.
           </p>
         </div>
 
-        <div className="inline-flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
-          <WalletCards className="h-4 w-4" />
-          {stats.total} recharge(s)
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 transition hover:border-[var(--ofna-green)] hover:bg-[var(--ofna-green-soft)] disabled:opacity-60"
+          >
+            <RefreshCcw className="h-4 w-4" />
+            {refreshing ? 'Actualisation...' : 'Actualiser'}
+          </button>
+
+          <div className="inline-flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+            <WalletCards className="h-4 w-4" />
+            {stats.total} recharge(s)
+          </div>
         </div>
       </div>
 
@@ -236,8 +304,12 @@ export default function AdminRechargesPage() {
         </div>
       ) : null}
 
-      <div className="mb-6 grid gap-4 md:grid-cols-4">
-        <StatCard label="Volume total" value={formatMoney(stats.totalAmount)} />
+      <div className="mb-6 grid gap-4 md:grid-cols-5">
+        <StatCard label="Volume déclaré" value={formatMoney(stats.totalAmount)} />
+        <StatCard
+          label="Volume validé"
+          value={formatMoney(stats.successfulAmount)}
+        />
         <StatCard label="Recharges" value={String(stats.total)} />
         <StatCard label="En attente" value={String(stats.pending)} />
         <StatCard label="Réussies" value={String(stats.successful)} />
@@ -249,14 +321,20 @@ export default function AdminRechargesPage() {
             Liste des recharges
           </h3>
 
+          <p className="mt-1 text-sm text-slate-500">
+            Consultez les recharges déclarées et traitez uniquement celles qui
+            sont encore en attente.
+          </p>
+
           <div className="mt-5 grid gap-3 md:grid-cols-[1fr_220px]">
             <div className="relative">
-              <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none transition focus:border-[var(--ofna-green)] focus:bg-white"
-                placeholder="Rechercher par partenaire, téléphone ou référence"
+                placeholder="Rechercher par partenaire, téléphone, mode ou référence"
               />
             </div>
 
@@ -303,81 +381,84 @@ export default function AdminRechargesPage() {
               </thead>
 
               <tbody className="divide-y divide-slate-100">
-                {filteredRecharges.map((recharge) => (
-                  <tr key={recharge.id} className="align-top">
-                    <td className="px-6 py-4">
-                      <p className="font-bold text-[var(--ofna-dark)]">
-                        {getPartnerName(recharge)}
-                      </p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        {recharge.wallet.partnerProfile?.user.phone ?? '—'}
-                      </p>
-                    </td>
+                {filteredRecharges.map((recharge) => {
+                  const isProcessing = processingId === recharge.id;
 
-                    <td className="px-6 py-4 font-bold text-[var(--ofna-dark)]">
-                      {formatMoney(recharge.amount)}
-                    </td>
+                  return (
+                    <tr key={recharge.id} className="align-top">
+                      <td className="px-6 py-4">
+                        <p className="font-bold text-[var(--ofna-dark)]">
+                          {getPartnerName(recharge)}
+                        </p>
 
-                    <td className="px-6 py-4 uppercase text-slate-600">
-                      {recharge.rechargeMode}
-                    </td>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {getPartnerPhone(recharge)}
+                        </p>
+                      </td>
 
-                    <td className="px-6 py-4 text-slate-600">
-                      {recharge.transactionReference ?? '—'}
-                    </td>
+                      <td className="px-6 py-4 font-bold text-[var(--ofna-dark)]">
+                        {formatMoney(recharge.amount)}
+                      </td>
 
-                    <td className="px-6 py-4">
-                      <span
-                        className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-bold ${getStatusClasses(
-                          recharge.transactionStatus,
-                        )}`}
-                      >
-                        {getStatusIcon(recharge.transactionStatus)}
-                        {getStatusLabel(recharge.transactionStatus)}
-                      </span>
-                    </td>
+                      <td className="px-6 py-4 text-slate-600">
+                        {getRechargeModeLabel(recharge.rechargeMode)}
+                      </td>
 
-                    <td className="px-6 py-4 text-slate-600">
-                      {formatDate(recharge.createdAt)}
-                    </td>
+                      <td className="px-6 py-4 text-slate-600">
+                        {recharge.transactionReference ?? '—'}
+                      </td>
 
-                    <td className="px-6 py-4 text-right">
-                      {recharge.transactionStatus === 'en_attente' ? (
-                        <div className="flex justify-end gap-2">
-                          <button
-                            type="button"
-                            disabled={processingId === recharge.id}
-                            onClick={() =>
-                              updateRechargeStatus(recharge.id, 'reussie')
-                            }
-                            className="inline-flex items-center gap-2 rounded-2xl bg-[var(--ofna-green)] px-4 py-2 text-xs font-bold text-white transition hover:bg-[var(--ofna-green-dark)] disabled:opacity-60"
-                          >
-                            <CheckCircle2 className="h-4 w-4" />
-                            {processingId === recharge.id
-                              ? 'Traitement...'
-                              : 'Valider'}
-                          </button>
-
-                          <button
-                            type="button"
-                            disabled={processingId === recharge.id}
-                            onClick={() =>
-                              updateRechargeStatus(recharge.id, 'echouee')
-                            }
-                            className="inline-flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-xs font-bold text-rose-700 transition hover:bg-rose-100 disabled:opacity-60"
-                          >
-                            <XCircle className="h-4 w-4" />
-                            Rejeter
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="text-xs font-semibold text-slate-400">
-                          Traitée
+                      <td className="px-6 py-4">
+                        <span
+                          className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-bold ${getStatusClasses(
+                            recharge.transactionStatus,
+                          )}`}
+                        >
+                          {getStatusIcon(recharge.transactionStatus)}
+                          {getStatusLabel(recharge.transactionStatus)}
                         </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+
+                      <td className="px-6 py-4 text-slate-600">
+                        {formatDate(recharge.createdAt)}
+                      </td>
+
+                      <td className="px-6 py-4 text-right">
+                        {recharge.transactionStatus === 'en_attente' ? (
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              disabled={isProcessing}
+                              onClick={() =>
+                                updateRechargeStatus(recharge.id, 'reussie')
+                              }
+                              className="inline-flex items-center gap-2 rounded-2xl bg-[var(--ofna-green)] px-4 py-2 text-xs font-bold text-white transition hover:bg-[var(--ofna-green-dark)] disabled:opacity-60"
+                            >
+                              <CheckCircle2 className="h-4 w-4" />
+                              {isProcessing ? 'Traitement...' : 'Valider'}
+                            </button>
+
+                            <button
+                              type="button"
+                              disabled={isProcessing}
+                              onClick={() =>
+                                updateRechargeStatus(recharge.id, 'echouee')
+                              }
+                              className="inline-flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-xs font-bold text-rose-700 transition hover:bg-rose-100 disabled:opacity-60"
+                            >
+                              <XCircle className="h-4 w-4" />
+                              Rejeter
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-xs font-semibold text-slate-400">
+                            Traitée
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

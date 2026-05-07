@@ -6,11 +6,14 @@ import {
   BadgePercent,
   CircleDollarSign,
   Eye,
+  RefreshCcw,
   Search,
   WalletCards,
 } from 'lucide-react';
+
 import AdminShell from '@/components/admin/AdminShell';
 import { api } from '@/lib/api';
+import { getAccessToken, getCurrentUser } from '@/lib/auth';
 
 interface AdminCommission {
   id: string;
@@ -46,8 +49,8 @@ interface AdminCommission {
   order: unknown | null;
 }
 
-function formatMoney(value: string | null | undefined) {
-  if (!value) return '—';
+function formatMoney(value: string | number | null | undefined) {
+  if (value === null || value === undefined || value === '') return '—';
 
   const amount = Number(value);
 
@@ -73,43 +76,87 @@ function formatDate(value: string | null | undefined) {
   });
 }
 
-function formatOperationType(value: string) {
+function formatOperationType(value: string | null | undefined) {
   const map: Record<string, string> = {
     mission: 'Mission',
     order: 'Commande',
+    vente_piece: 'Vente de pièce',
   };
 
-  return map[value] ?? value;
+  return map[String(value ?? '')] ?? value ?? 'Opération';
+}
+
+function formatMissionType(value: string | null | undefined) {
+  const map: Record<string, string> = {
+    depannage: 'Dépannage',
+    remorquage: 'Remorquage',
+  };
+
+  return map[String(value ?? '')] ?? value ?? 'Mission';
 }
 
 function getPartnerName(commission: AdminCommission) {
-  return (
-    commission.partnerProfile.businessName ??
-    `${commission.partnerProfile.user.firstName} ${commission.partnerProfile.user.lastName}`
-  );
+  const personalName = `${commission.partnerProfile.user.firstName ?? ''} ${
+    commission.partnerProfile.user.lastName ?? ''
+  }`.trim();
+
+  return commission.partnerProfile.businessName || personalName || 'Partenaire';
+}
+
+function getClientName(commission: AdminCommission) {
+  if (!commission.mission?.client) return '—';
+
+  const clientName = `${commission.mission.client.firstName ?? ''} ${
+    commission.mission.client.lastName ?? ''
+  }`.trim();
+
+  return clientName || 'Client';
 }
 
 export default function AdminCommissionsPage() {
   const [commissions, setCommissions] = useState<AdminCommission[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [search, setSearch] = useState('');
 
-  useEffect(() => {
-    const loadCommissions = async () => {
-      try {
-        const response = await api.get<AdminCommission[]>('/admin/commissions');
-        setCommissions(response.data);
-      } catch (err) {
-        setError('Impossible de charger les commissions.');
-      } finally {
-        setLoading(false);
-      }
-    };
+  const loadCommissions = async () => {
+    try {
+      setError(null);
 
-    void loadCommissions();
+      const response = await api.get<AdminCommission[]>('/admin/commissions');
+      setCommissions(Array.isArray(response.data) ? response.data : []);
+    } catch {
+      setError('Impossible de charger les commissions.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      const token = getAccessToken();
+      const user = getCurrentUser();
+
+      if (!token || user?.role !== 'admin') {
+        window.location.replace('/login');
+        return;
+      }
+
+      void loadCommissions();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
   }, []);
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    void loadCommissions();
+  };
 
   const filteredCommissions = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
@@ -119,16 +166,20 @@ export default function AdminCommissionsPage() {
     return commissions.filter((commission) => {
       const partnerName = getPartnerName(commission).toLowerCase();
       const partnerPhone = commission.partnerProfile.user.phone.toLowerCase();
-      const clientName = commission.mission?.client
-        ? `${commission.mission.client.firstName} ${commission.mission.client.lastName}`.toLowerCase()
-        : '';
+      const clientName = getClientName(commission).toLowerCase();
+      const clientPhone = commission.mission?.client?.phone?.toLowerCase() ?? '';
       const address = commission.mission?.departureAddress?.toLowerCase() ?? '';
+      const operationType = formatOperationType(
+        commission.operationType,
+      ).toLowerCase();
 
       return (
         partnerName.includes(normalizedSearch) ||
         partnerPhone.includes(normalizedSearch) ||
         clientName.includes(normalizedSearch) ||
-        address.includes(normalizedSearch)
+        clientPhone.includes(normalizedSearch) ||
+        address.includes(normalizedSearch) ||
+        operationType.includes(normalizedSearch)
       );
     });
   }, [commissions, search]);
@@ -144,10 +195,15 @@ export default function AdminCommissionsPage() {
       0,
     );
 
+    const missionCommissions = commissions.filter(
+      (commission) => commission.operationType === 'mission',
+    ).length;
+
     return {
       count: commissions.length,
       totalAmount,
       totalOperations,
+      missionCommissions,
     };
   }, [commissions]);
 
@@ -158,46 +214,61 @@ export default function AdminCommissionsPage() {
           <p className="text-sm font-semibold uppercase tracking-[0.22em] text-[var(--ofna-green)]">
             Gestion des commissions
           </p>
+
           <h2 className="mt-2 text-4xl font-black tracking-[-0.03em] text-[var(--ofna-dark)]">
             Commissions partenaires
           </h2>
+
           <p className="mt-3 max-w-3xl text-base leading-7 text-slate-500">
             Suivez les commissions prélevées sur les missions et contrôlez les
             montants générés par partenaire.
           </p>
         </div>
 
-        <div className="inline-flex items-center gap-2 rounded-2xl border border-[rgba(22,163,74,0.16)] bg-[var(--ofna-green-soft)] px-4 py-3 text-sm font-semibold text-[var(--ofna-dark)]">
-          <BadgePercent className="h-4 w-4 text-[var(--ofna-green)]" />
-          {filteredCommissions.length} commission
-          {filteredCommissions.length > 1 ? 's' : ''}
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 transition hover:border-[var(--ofna-green)] hover:bg-[var(--ofna-green-soft)] disabled:opacity-60"
+          >
+            <RefreshCcw className="h-4 w-4" />
+            {refreshing ? 'Actualisation...' : 'Actualiser'}
+          </button>
+
+          <div className="inline-flex items-center gap-2 rounded-2xl border border-[rgba(22,163,74,0.16)] bg-[var(--ofna-green-soft)] px-4 py-3 text-sm font-semibold text-[var(--ofna-dark)]">
+            <BadgePercent className="h-4 w-4 text-[var(--ofna-green)]" />
+            {filteredCommissions.length} commission
+            {filteredCommissions.length > 1 ? 's' : ''}
+          </div>
         </div>
       </div>
 
-      <div className="mb-8 grid gap-4 md:grid-cols-3">
-        <div className="rounded-[28px] border border-[var(--ofna-border)] bg-[var(--ofna-green-soft)] p-5">
-          <p className="text-sm text-slate-500">Commissions totales</p>
-          <p className="mt-3 text-4xl font-black tracking-[-0.03em] text-[var(--ofna-dark)]">
-            {stats.count}
-          </p>
-        </div>
+      <div className="mb-8 grid gap-4 md:grid-cols-4">
+        <StatCard
+          label="Commissions"
+          value={String(stats.count)}
+          tone="green"
+        />
 
-        <div className="rounded-[28px] border border-[var(--ofna-border)] bg-[var(--ofna-dark)] p-5 text-white">
-          <p className="text-sm text-white/70">Montant total commissions</p>
-          <p className="mt-3 text-3xl font-black tracking-[-0.03em]">
-            {formatMoney(String(stats.totalAmount))}
-          </p>
-        </div>
+        <StatCard
+          label="Commissions missions"
+          value={String(stats.missionCommissions)}
+          tone="white"
+        />
 
-        <div className="rounded-[28px] border border-[var(--ofna-border)] bg-white p-5">
-          <div className="flex items-center gap-2 text-slate-500">
-            <WalletCards className="h-4 w-4 text-[var(--ofna-green)]" />
-            <p className="text-sm">Volume opérations</p>
-          </div>
-          <p className="mt-3 text-3xl font-black tracking-[-0.03em] text-[var(--ofna-dark)]">
-            {formatMoney(String(stats.totalOperations))}
-          </p>
-        </div>
+        <StatCard
+          label="Montant total commissions"
+          value={formatMoney(stats.totalAmount)}
+          tone="dark"
+        />
+
+        <StatCard
+          label="Volume opérations"
+          value={formatMoney(stats.totalOperations)}
+          tone="white"
+          icon={<WalletCards className="h-4 w-4 text-[var(--ofna-green)]" />}
+        />
       </div>
 
       <div className="rounded-[32px] border border-[var(--ofna-border)] bg-white shadow-sm">
@@ -205,14 +276,17 @@ export default function AdminCommissionsPage() {
           <h3 className="text-2xl font-bold text-[var(--ofna-dark)]">
             Liste des commissions
           </h3>
+
           <p className="mt-1 text-sm text-slate-500">
-            Recherchez par partenaire, client, téléphone ou adresse de mission.
+            Recherchez par partenaire, client, téléphone, adresse ou type
+            d’opération.
           </p>
         </div>
 
         <div className="border-b border-slate-100 px-6 py-5">
           <div className="relative">
             <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+
             <input
               type="text"
               value={search}
@@ -238,16 +312,18 @@ export default function AdminCommissionsPage() {
             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--ofna-green-soft)]">
               <CircleDollarSign className="h-6 w-6 text-[var(--ofna-green)]" />
             </div>
+
             <h4 className="mt-4 text-xl font-bold text-[var(--ofna-dark)]">
               Aucune commission trouvée
             </h4>
+
             <p className="mt-2 text-sm text-slate-500">
               Ajustez votre recherche pour afficher des résultats.
             </p>
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-[1100px] w-full text-sm">
+            <table className="w-full min-w-[1100px] text-sm">
               <thead className="bg-slate-50 text-left text-slate-500">
                 <tr>
                   <th className="px-6 py-4 font-semibold">Partenaire</th>
@@ -271,6 +347,7 @@ export default function AdminCommissionsPage() {
                       <div className="font-semibold text-[var(--ofna-dark)]">
                         {getPartnerName(commission)}
                       </div>
+
                       <div className="mt-1 text-xs text-slate-500">
                         {commission.partnerProfile.user.phone}
                       </div>
@@ -280,9 +357,9 @@ export default function AdminCommissionsPage() {
                       {commission.mission?.client ? (
                         <>
                           <div className="font-medium text-[var(--ofna-dark)]">
-                            {commission.mission.client.firstName}{' '}
-                            {commission.mission.client.lastName}
+                            {getClientName(commission)}
                           </div>
+
                           <div className="mt-1 text-xs text-slate-500">
                             {commission.mission.client.phone}
                           </div>
@@ -293,9 +370,17 @@ export default function AdminCommissionsPage() {
                     </td>
 
                     <td className="px-6 py-4">
-                      <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
-                        {formatOperationType(commission.operationType)}
-                      </span>
+                      <div className="space-y-1">
+                        <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
+                          {formatOperationType(commission.operationType)}
+                        </span>
+
+                        {commission.mission ? (
+                          <p className="text-xs text-slate-500">
+                            {formatMissionType(commission.mission.missionType)}
+                          </p>
+                        ) : null}
+                      </div>
                     </td>
 
                     <td className="px-6 py-4 font-semibold text-[var(--ofna-dark)]">
@@ -321,7 +406,7 @@ export default function AdminCommissionsPage() {
                     </td>
 
                     <td className="px-6 py-4">
-                      {formatDate(commission.debitedAt)}
+                      {formatDate(commission.debitedAt ?? commission.createdAt)}
                     </td>
 
                     <td className="px-6 py-4">
@@ -345,5 +430,41 @@ export default function AdminCommissionsPage() {
         )}
       </div>
     </AdminShell>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  tone,
+  icon,
+}: {
+  label: string;
+  value: string;
+  tone: 'green' | 'dark' | 'white';
+  icon?: React.ReactNode;
+}) {
+  const classes: Record<'green' | 'dark' | 'white', string> = {
+    green:
+      'border-[var(--ofna-border)] bg-[var(--ofna-green-soft)] text-slate-500',
+    dark: 'border-[var(--ofna-border)] bg-[var(--ofna-dark)] text-white/70',
+    white: 'border-[var(--ofna-border)] bg-white text-slate-500',
+  };
+
+  return (
+    <div className={`rounded-[28px] border p-5 ${classes[tone]}`}>
+      <div className="flex items-center gap-2">
+        {icon}
+        <p className="text-sm">{label}</p>
+      </div>
+
+      <p
+        className={`mt-3 text-3xl font-black tracking-[-0.03em] ${
+          tone === 'dark' ? 'text-white' : 'text-[var(--ofna-dark)]'
+        }`}
+      >
+        {value}
+      </p>
+    </div>
   );
 }

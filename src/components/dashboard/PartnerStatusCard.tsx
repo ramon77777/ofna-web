@@ -1,16 +1,34 @@
-import { ShieldCheck, Eye, CircleCheck, AlertTriangle } from 'lucide-react';
+import { AlertTriangle, CircleCheck, Eye, ShieldCheck } from 'lucide-react';
+import { ReactNode } from 'react';
+
 import { PartnerProfile } from '@/lib/types';
 
 interface PartnerStatusCardProps {
   partnerProfile: PartnerProfile;
 }
 
+function getValidationStatusLabel(status: string | null | undefined) {
+  const labels: Record<string, string> = {
+    en_attente: 'En attente',
+    en_cours_verification: 'En cours de vérification',
+    valide: 'Validé',
+    rejete: 'Rejeté',
+    documents_a_completer: 'Documents à compléter',
+  };
+
+  return labels[String(status ?? '')] ?? status ?? 'Non défini';
+}
+
 export default function PartnerStatusCard({
   partnerProfile,
 }: PartnerStatusCardProps) {
-  const hasDocumentToRedo = partnerProfile.documents.some(
+  const documents = partnerProfile.documents ?? [];
+
+  const hasDocumentToRedo = documents.some(
     (document) => document.documentStatus === 'a_reprendre',
   );
+
+  const submittedDocumentsCount = documents.length;
 
   return (
     <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
@@ -19,6 +37,7 @@ export default function PartnerStatusCard({
           <h3 className="text-lg font-bold text-[var(--ofna-dark)]">
             Statut du partenaire
           </h3>
+
           <p className="mt-1 text-sm text-slate-500">
             Visibilité et conformité du compte
           </p>
@@ -33,7 +52,7 @@ export default function PartnerStatusCard({
         <StatusRow
           icon={<CircleCheck className="h-4 w-4" />}
           label="Validation"
-          value={partnerProfile.validationStatus}
+          value={getValidationStatusLabel(partnerProfile.validationStatus)}
         />
 
         <StatusRow
@@ -47,6 +66,12 @@ export default function PartnerStatusCard({
           label="Visibilité"
           value={partnerProfile.isVisible ? 'Visible' : 'Masqué'}
         />
+
+        <StatusRow
+          icon={<CircleCheck className="h-4 w-4" />}
+          label="Documents soumis"
+          value={`${submittedDocumentsCount}`}
+        />
       </div>
 
       {hasDocumentToRedo ? (
@@ -58,6 +83,7 @@ export default function PartnerStatusCard({
 
             <div>
               <p className="font-semibold">Action requise</p>
+
               <p className="mt-1 leading-6">
                 Un document doit être repris dans votre dossier partenaire.
               </p>
@@ -78,7 +104,7 @@ function StatusRow({
   label,
   value,
 }: {
-  icon: React.ReactNode;
+  icon: ReactNode;
   label: string;
   value: string;
 }) {
@@ -86,10 +112,11 @@ function StatusRow({
     <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
       <div className="flex items-center gap-2 text-slate-600">
         <span className="text-[var(--ofna-green)]">{icon}</span>
+
         <span className="text-sm font-medium">{label}</span>
       </div>
 
-      <span className="text-sm font-semibold text-[var(--ofna-dark)]">
+      <span className="text-right text-sm font-semibold text-[var(--ofna-dark)]">
         {value}
       </span>
     </div>
