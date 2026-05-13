@@ -6,7 +6,9 @@ import {
   BadgePercent,
   CreditCard,
   LayoutDashboard,
+  MessageSquareText,
   Shield,
+  ShoppingCart,
   UserCheck,
   UserCircle2,
   Users,
@@ -23,6 +25,8 @@ const navItems = [
   },
   { href: '/admin/partners', label: 'Partenaires', icon: Users },
   { href: '/admin/missions', label: 'Missions', icon: Wrench },
+  { href: '/admin/orders', label: 'Commandes boutique', icon: ShoppingCart },
+  { href: '/admin/reviews', label: 'Avis clients', icon: MessageSquareText },
   { href: '/admin/commissions', label: 'Commissions', icon: BadgePercent },
   { href: '/admin/recharges', label: 'Recharges', icon: CreditCard },
   { href: '/admin/finance', label: 'Finance', icon: WalletCards },
@@ -35,7 +39,10 @@ function isActivePath(pathname: string, href: string) {
   }
 
   if (href === '/admin/partners') {
-    return pathname.startsWith('/admin/partners/') && pathname !== '/admin/partners/pending';
+    return (
+      pathname.startsWith('/admin/partners/') &&
+      pathname !== '/admin/partners/pending'
+    );
   }
 
   return pathname.startsWith(`${href}/`);

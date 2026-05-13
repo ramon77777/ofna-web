@@ -225,7 +225,7 @@ export default function RegisterPage() {
               <div className="mt-8 flex items-center gap-4">
                 <div className="relative h-20 w-20 overflow-hidden rounded-2xl bg-white/95 p-2 shadow-lg">
                   <Image
-                    src="/ofna-logo.jpeg"
+                    src="/ofna-logo.jpg"
                     alt="Logo OFNA Dépannage"
                     fill
                     className="object-contain"

@@ -8,6 +8,7 @@ import {
   Calculator,
   Clock3,
   FileText,
+  PackageCheck,
   RefreshCcw,
   Wallet,
 } from 'lucide-react';
@@ -16,6 +17,8 @@ import DashboardShell from '@/components/layout/DashboardShell';
 import { api } from '@/lib/api';
 import { getPartnerToken } from '@/lib/auth';
 import { Commission } from '@/lib/types';
+
+type CommissionTypeFilter = 'all' | 'mission' | 'vente_piece';
 
 function formatMoney(value: string | number | null | undefined) {
   const amount = Number(value ?? 0);
@@ -85,6 +88,26 @@ function getMissionStatusLabel(status: string | null | undefined) {
   return labels[normalized] ?? null;
 }
 
+function getOrderStatusLabel(status: string | null | undefined) {
+  const normalized = String(status ?? '').toLowerCase();
+
+  const labels: Record<string, string> = {
+    en_attente: 'En attente',
+    confirmee: 'Confirmée',
+    en_traitement: 'En traitement',
+    terminee: 'Terminée',
+    annulee: 'Annulée',
+  };
+
+  return labels[normalized] ?? null;
+}
+
+function isOrderCommission(commission: Commission) {
+  const operationType = String(commission.operationType ?? '').toLowerCase();
+
+  return operationType === 'vente_piece' || operationType === 'order';
+}
+
 function getCommissionSubtitle(commission: Commission) {
   const operationType = String(commission.operationType ?? '').toLowerCase();
 
@@ -105,7 +128,18 @@ function getCommissionSubtitle(commission: Commission) {
     return 'Mission commissionnée';
   }
 
-  if (operationType === 'vente_piece' || operationType === 'order') {
+  if (isOrderCommission(commission)) {
+    const productName = commission.order?.product?.name;
+    const orderStatus = getOrderStatusLabel(commission.order?.orderStatus);
+
+    if (productName && orderStatus) {
+      return `Vente pièce · ${productName} · ${orderStatus}`;
+    }
+
+    if (productName) {
+      return `Vente pièce · ${productName}`;
+    }
+
     return 'Vente de pièce commissionnée';
   }
 
@@ -126,11 +160,39 @@ function getCommissionReference(commission: Commission) {
   return '—';
 }
 
+function getCommissionDetailLabel(commission: Commission) {
+  if (String(commission.operationType ?? '').toLowerCase() === 'mission') {
+    const missionType = getMissionTypeLabel(commission.mission?.missionType);
+    const panneType = commission.mission?.panneType;
+    const vehicleType = commission.mission?.vehicleType;
+
+    return [missionType, panneType, vehicleType].filter(Boolean).join(' · ');
+  }
+
+  if (isOrderCommission(commission)) {
+    const productName = commission.order?.product?.name;
+    const quantity = commission.order?.quantity;
+
+    if (productName && quantity) {
+      return `${productName} · Qté ${quantity}`;
+    }
+
+    if (productName) {
+      return productName;
+    }
+
+    return 'Commande boutique';
+  }
+
+  return '—';
+}
+
 export default function CommissionsPage() {
   const [commissions, setCommissions] = useState<Commission[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [typeFilter, setTypeFilter] = useState<CommissionTypeFilter>('all');
 
   const loadCommissions = async () => {
     try {
@@ -182,11 +244,7 @@ export default function CommissionsPage() {
         String(commission.operationType ?? '').toLowerCase() === 'mission',
     ).length;
 
-    const orderCommissions = commissions.filter((commission) => {
-      const operationType = String(commission.operationType ?? '').toLowerCase();
-
-      return operationType === 'vente_piece' || operationType === 'order';
-    }).length;
+    const orderCommissions = commissions.filter(isOrderCommission).length;
 
     const averageRate =
       commissions.length > 0
@@ -208,10 +266,32 @@ export default function CommissionsPage() {
     };
   }, [commissions]);
 
+  const filteredCommissions = useMemo(() => {
+    if (typeFilter === 'all') {
+      return commissions;
+    }
+
+    return commissions.filter((commission) => {
+      const operationType = String(commission.operationType ?? '').toLowerCase();
+
+      if (typeFilter === 'vente_piece') {
+        return operationType === 'vente_piece' || operationType === 'order';
+      }
+
+      return operationType === typeFilter;
+    });
+  }, [commissions, typeFilter]);
+
   const handleRefresh = () => {
     setRefreshing(true);
     void loadCommissions();
   };
+
+  const filters: Array<{ value: CommissionTypeFilter; label: string }> = [
+    { value: 'all', label: 'Toutes' },
+    { value: 'mission', label: 'Missions' },
+    { value: 'vente_piece', label: 'Ventes pièces' },
+  ];
 
   return (
     <DashboardShell>
@@ -226,8 +306,8 @@ export default function CommissionsPage() {
           </h2>
 
           <p className="mt-3 max-w-3xl text-base leading-7 text-slate-500">
-            Consultez les commissions prélevées par OFNA sur vos missions et,
-            plus tard, sur vos ventes de pièces détachées.
+            Consultez les commissions prélevées par OFNA sur vos missions et
+            vos ventes de pièces détachées.
           </p>
         </div>
 
@@ -280,45 +360,85 @@ export default function CommissionsPage() {
             />
 
             <StatCard
-              title="Missions commissionnées"
+              title="Missions"
               value={String(stats.missionCommissions)}
               icon={<BriefcaseBusiness className="h-5 w-5" />}
             />
 
             <StatCard
-              title="Taux moyen"
-              value={`${stats.averageRate.toFixed(2)}%`}
-              icon={<Clock3 className="h-5 w-5" />}
+              title="Ventes pièces"
+              value={String(stats.orderCommissions)}
+              icon={<PackageCheck className="h-5 w-5" />}
             />
           </section>
 
-          {stats.latestCommission ? (
-            <section className="rounded-[28px] border border-[var(--ofna-border)] bg-white p-5 shadow-sm">
-              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--ofna-green)]">
-                    Dernière commission
-                  </p>
+          <section className="grid gap-4 md:grid-cols-2">
+            <div className="rounded-[28px] border border-[var(--ofna-border)] bg-white p-5 shadow-sm">
+              <div className="flex items-center gap-2 text-[var(--ofna-green)]">
+                <Clock3 className="h-5 w-5" />
+                <p className="text-sm font-semibold">Taux moyen</p>
+              </div>
 
-                  <h3 className="mt-2 text-xl font-black text-[var(--ofna-dark)]">
-                    {formatMoney(stats.latestCommission.commissionAmount)}
-                  </h3>
+              <p className="mt-3 text-2xl font-black text-[var(--ofna-dark)]">
+                {stats.averageRate.toFixed(2)}%
+              </p>
+            </div>
 
-                  <p className="mt-1 text-sm text-slate-500">
-                    {getCommissionSubtitle(stats.latestCommission)} ·{' '}
-                    {formatDate(
-                      stats.latestCommission.debitedAt ??
-                        stats.latestCommission.createdAt,
-                    )}
-                  </p>
-                </div>
+            {stats.latestCommission ? (
+              <div className="rounded-[28px] border border-[var(--ofna-border)] bg-white p-5 shadow-sm">
+                <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--ofna-green)]">
+                      Dernière commission
+                    </p>
 
-                <div className="rounded-2xl bg-[var(--ofna-green-soft)] p-3 text-[var(--ofna-green)]">
-                  <FileText className="h-5 w-5" />
+                    <h3 className="mt-2 text-xl font-black text-[var(--ofna-dark)]">
+                      {formatMoney(stats.latestCommission.commissionAmount)}
+                    </h3>
+
+                    <p className="mt-1 text-sm text-slate-500">
+                      {getCommissionSubtitle(stats.latestCommission)} ·{' '}
+                      {formatDate(
+                        stats.latestCommission.debitedAt ??
+                          stats.latestCommission.createdAt,
+                      )}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl bg-[var(--ofna-green-soft)] p-3 text-[var(--ofna-green)]">
+                    <FileText className="h-5 w-5" />
+                  </div>
                 </div>
               </div>
-            </section>
-          ) : null}
+            ) : (
+              <div className="rounded-[28px] border border-[var(--ofna-border)] bg-white p-5 text-sm font-semibold text-slate-500 shadow-sm">
+                Aucune commission récente.
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-[28px] border border-[var(--ofna-border)] bg-white p-4 shadow-sm">
+            <div className="flex flex-wrap gap-2">
+              {filters.map((filter) => {
+                const selected = typeFilter === filter.value;
+
+                return (
+                  <button
+                    key={filter.value}
+                    type="button"
+                    onClick={() => setTypeFilter(filter.value)}
+                    className={`rounded-2xl px-4 py-2 text-sm font-black transition ${
+                      selected
+                        ? 'bg-[var(--ofna-green)] text-white'
+                        : 'border border-slate-200 bg-white text-slate-600 hover:border-[var(--ofna-green)] hover:text-[var(--ofna-green)]'
+                    }`}
+                  >
+                    {filter.label}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
 
           <section className="rounded-[32px] border border-[var(--ofna-border)] bg-white shadow-sm">
             <div className="flex flex-col gap-3 border-b border-slate-100 p-6 md:flex-row md:items-center md:justify-between">
@@ -328,7 +448,8 @@ export default function CommissionsPage() {
                 </h3>
 
                 <p className="mt-1 text-sm text-slate-500">
-                  {commissions.length} commission(s) trouvée(s).
+                  {filteredCommissions.length} commission(s) affichée(s) sur{' '}
+                  {commissions.length}.
                 </p>
               </div>
 
@@ -337,9 +458,9 @@ export default function CommissionsPage() {
               </div>
             </div>
 
-            {commissions.length === 0 ? (
+            {filteredCommissions.length === 0 ? (
               <div className="p-6 text-sm font-medium text-slate-500">
-                Aucune commission enregistrée pour le moment.
+                Aucune commission enregistrée pour ce filtre.
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -347,6 +468,7 @@ export default function CommissionsPage() {
                   <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-500">
                     <tr>
                       <th className="px-6 py-4">Opération</th>
+                      <th className="px-6 py-4">Détail</th>
                       <th className="px-6 py-4">Référence</th>
                       <th className="px-6 py-4">Montant opération</th>
                       <th className="px-6 py-4">Taux</th>
@@ -357,7 +479,7 @@ export default function CommissionsPage() {
                   </thead>
 
                   <tbody className="divide-y divide-slate-100">
-                    {commissions.map((commission) => (
+                    {filteredCommissions.map((commission) => (
                       <tr
                         key={commission.id}
                         className="text-slate-700 transition hover:bg-slate-50"
@@ -372,6 +494,10 @@ export default function CommissionsPage() {
                               {getCommissionSubtitle(commission)}
                             </p>
                           </div>
+                        </td>
+
+                        <td className="px-6 py-4 text-xs font-semibold text-slate-500">
+                          {getCommissionDetailLabel(commission) || '—'}
                         </td>
 
                         <td className="px-6 py-4 text-xs font-semibold text-slate-500">
@@ -407,10 +533,13 @@ export default function CommissionsPage() {
             )}
           </section>
 
-          {stats.orderCommissions > 0 ? (
+          {filteredCommissions.length > 0 ? (
             <div className="rounded-[28px] border border-[var(--ofna-border)] bg-white p-5 text-sm text-slate-600 shadow-sm">
-              {stats.orderCommissions} commission(s) liée(s) à des ventes de
-              pièces sont déjà visibles dans l’historique.
+              {typeFilter === 'all'
+                ? `${filteredCommissions.length} commission(s) affichée(s) : ${stats.missionCommissions} mission(s) et ${stats.orderCommissions} vente(s) de pièces.`
+                : typeFilter === 'mission'
+                  ? `${filteredCommissions.length} commission(s) liée(s) aux missions sont visibles dans l’historique.`
+                  : `${filteredCommissions.length} commission(s) liée(s) aux ventes de pièces sont visibles dans l’historique.`}
             </div>
           ) : null}
         </div>

@@ -68,6 +68,65 @@ export interface PartnerProfile {
   documents?: PartnerDocument[];
 }
 
+export interface PartnerReviewClient {
+  id: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  phone?: string | null;
+  email?: string | null;
+}
+
+export interface PartnerReviewMission {
+  id: string;
+  missionType?: string | null;
+  panneType?: string | null;
+  vehicleType?: string | null;
+  completedAt?: string | null;
+  createdAt?: string | null;
+}
+
+export interface PartnerReview {
+  id: string;
+  reviewType?: 'mission' | 'order' | string;
+  rating: number;
+  comment: string | null;
+  publishedAt: string | null;
+  createdAt: string;
+  client?: PartnerReviewClient | null;
+  mission?: PartnerReviewMission | null;
+  order?: PartnerReviewOrder | null;
+  partnerProfile?: PartnerReviewPartnerProfile | null;
+}
+
+export interface PartnerReviewOrderProduct {
+  id: string;
+  name: string;
+  category?: string | null;
+  price?: string | null;
+}
+
+export interface PartnerReviewOrder {
+  id: string;
+  orderStatus?: string | null;
+  completedAt?: string | null;
+  createdAt?: string | null;
+  product?: PartnerReviewOrderProduct | null;
+}
+
+export interface PartnerReviewPartnerProfile {
+  id: string;
+  businessName: string | null;
+  averageRating?: string | null;
+  reviewsCount?: number | null;
+  user?: {
+    id?: string;
+    firstName?: string;
+    lastName?: string;
+    phone?: string;
+    email?: string | null;
+  } | null;
+}
+
 export interface WalletMission {
   id: string;
   missionType: string;
@@ -106,9 +165,41 @@ export interface WalletTransaction {
   mission?: WalletMission | null;
 }
 
+export interface CommissionOrderProduct {
+  id: string;
+  name: string;
+  category?: string;
+  description?: string | null;
+  price?: string;
+  mainPhotoUrl?: string | null;
+  secondaryPhotoUrl?: string | null;
+  availability?: string;
+  isActive?: boolean;
+}
+
+export interface CommissionOrderClient {
+  id?: string;
+  firstName?: string;
+  lastName?: string;
+  phone?: string;
+  email?: string | null;
+}
+
 export interface CommissionOrder {
   id: string;
+  quantity?: number;
+  proposedAmount?: string | null;
+  validatedAmount?: string | null;
+  paymentMode?: string | null;
   orderStatus?: string;
+  validatedAt?: string | null;
+  completedAt?: string | null;
+  cancelledAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  client?: CommissionOrderClient | null;
+  product?: CommissionOrderProduct | null;
+  partnerProfile?: PartnerProfile | null;
 }
 
 export interface Commission {
@@ -232,16 +323,55 @@ export interface AdminDashboardStats {
   validatedPartners: number;
   totalMissions: number;
   completedMissions: number;
+  totalOrders: number;
+  pendingOrders: number;
+  inProgressOrders: number;
+  completedOrders: number;
+  cancelledOrders: number;
+  totalOrdersAmount: string;
+  completedOrdersAmount: string;
   totalCommissionAmount: string;
+  missionCommissionAmount: string;
+  orderCommissionAmount: string;
   pendingRecharges: number;
+  pendingRechargeAmount: string;
   documentsToRedo: number;
   commissionsToProcess: number;
+}
+
+export interface AdminDashboardOrder {
+  id: string;
+  quantity: number;
+  proposedAmount: string | null;
+  validatedAmount: string | null;
+  orderStatus: string;
+  createdAt: string;
+  client: {
+    firstName: string;
+    lastName: string;
+    phone: string;
+  };
+  partnerProfile: {
+    businessName: string | null;
+    user: {
+      firstName: string;
+      lastName: string;
+      phone: string;
+    };
+  };
+  product: {
+    id: string;
+    name: string;
+    category: string;
+    price: string;
+  };
 }
 
 export interface AdminDashboardResponse {
   stats: AdminDashboardStats;
   recentMissions: AdminMission[];
   recentPartners: AdminPartner[];
+  recentOrders: AdminDashboardOrder[];
   operationalAlerts: AdminOperationalAlert[];
 }
 
@@ -256,7 +386,7 @@ export interface AdminCommission {
   createdAt: string;
   partnerProfile: AdminPartner;
   mission: AdminMission | null;
-  order: unknown | null;
+  order: CommissionOrder | null;
 }
 
 export interface AdminPartnerDetails {

@@ -3,7 +3,6 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { FormEvent, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import {
   BadgeDollarSign,
   BriefcaseBusiness,
@@ -13,11 +12,11 @@ import {
 } from 'lucide-react';
 
 import { api } from '@/lib/api';
-import { getCurrentUser, isAuthenticated, setSession } from '@/lib/auth';
+import { clearSession, setSession } from '@/lib/auth';
 import { LoginResponse } from '@/lib/types';
 
 export default function LoginPage() {
-  const router = useRouter();
+  
 
   const [phone, setPhone] = useState('+2250701234567');
   const [password, setPassword] = useState('');
@@ -25,20 +24,8 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isAuthenticated()) return;
-
-    const user = getCurrentUser();
-
-    if (user?.role === 'admin') {
-      router.replace('/admin/dashboard');
-      return;
-    }
-
-    if (user?.role === 'partner') {
-      router.replace('/dashboard');
-      return;
-    }
-  }, [router]);
+    clearSession();
+  }, []);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -46,29 +33,38 @@ export default function LoginPage() {
     setError(null);
 
     try {
+      clearSession();
+
       const response = await api.post<LoginResponse>('/auth/login', {
         phone: phone.trim(),
         password,
       });
 
       const { accessToken, user } = response.data;
+      const role = String(user.role ?? '').trim().toLowerCase();
 
-      if (user.role !== 'partner' && user.role !== 'admin') {
+      if (role !== 'partner' && role !== 'admin') {
         setError('Ce compte n’a pas accès à l’application web OFNA.');
+        setLoading(false);
         return;
       }
 
-      setSession(accessToken, user);
+      const normalizedUser = {
+        ...user,
+        role,
+      };
 
-      if (user.role === 'admin') {
-        router.replace('/admin/dashboard');
+      setSession(accessToken, normalizedUser);
+
+      if (role === 'admin') {
+        window.location.replace('/admin/dashboard');
         return;
       }
 
-      router.replace('/dashboard');
+      window.location.replace('/dashboard');
     } catch {
+      clearSession();
       setError('Téléphone ou mot de passe invalide.');
-    } finally {
       setLoading(false);
     }
   };
@@ -88,7 +84,7 @@ export default function LoginPage() {
               <div className="mt-8 flex items-center gap-4">
                 <div className="relative h-20 w-20 overflow-hidden rounded-2xl bg-white/95 p-2 shadow-lg">
                   <Image
-                    src="/ofna-logo.jpeg"
+                    src="/ofna-logo.jpg"
                     alt="Logo OFNA Dépannage"
                     fill
                     className="object-contain"

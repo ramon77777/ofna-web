@@ -21,6 +21,7 @@ import {
   MapPin,
   Phone,
   ReceiptText,
+  Star,
   ToggleLeft,
   ToggleRight,
   User,
@@ -33,6 +34,7 @@ import { getAccessToken, getCurrentUser } from '@/lib/auth';
 import {
   AdminCommission,
   PartnerProfile,
+  PartnerReview,
   WalletTransaction,
 } from '@/lib/types';
 
@@ -210,6 +212,56 @@ function getRechargeStatusLabel(status: string | null | undefined) {
   return labels[String(status ?? '')] ?? status ?? 'Non défini';
 }
 
+function formatRating(value: string | number | null | undefined) {
+  const rating = Number(value ?? 0);
+
+  if (Number.isNaN(rating) || rating <= 0) {
+    return 'Aucun avis';
+  }
+
+  return `${rating.toFixed(1)}/5`;
+}
+
+function formatReviewsCount(value: number | null | undefined) {
+  const count = Number(value ?? 0);
+
+  if (count <= 0) {
+    return '0 avis';
+  }
+
+  return `${count} avis`;
+}
+
+function getClientName(review: PartnerReview) {
+  const firstName = review.client?.firstName ?? '';
+  const lastName = review.client?.lastName ?? '';
+  const name = `${firstName} ${lastName}`.trim();
+
+  return name || 'Client OFNA';
+}
+
+function getMissionReviewLabel(review: PartnerReview) {
+  const mission = review.mission;
+
+  if (!mission) {
+    return 'Mission OFNA';
+  }
+
+  const typeLabels: Record<string, string> = {
+    depannage: 'Dépannage',
+    remorquage: 'Remorquage',
+  };
+
+  const missionType =
+    typeLabels[String(mission.missionType ?? '').toLowerCase()] ?? 'Mission';
+
+  const details = [mission.panneType, mission.vehicleType]
+    .filter((value): value is string => Boolean(value && value.trim()))
+    .join(' · ');
+
+  return details ? `${missionType} · ${details}` : missionType;
+}
+
 export default function AdminPartnerDetailsPage() {
   const params = useParams();
   const router = useRouter();
@@ -218,6 +270,10 @@ export default function AdminPartnerDetailsPage() {
 
   const [partner, setPartner] = useState<PartnerProfile | null>(null);
   const [finance, setFinance] = useState<AdminFinanceResponse | null>(null);
+
+  const [reviews, setReviews] = useState<PartnerReview[]>([]);
+  const [reviewsLoading, setReviewsLoading] = useState(true);
+  const [reviewsError, setReviewsError] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [financeLoading, setFinanceLoading] = useState(true);
@@ -259,6 +315,24 @@ export default function AdminPartnerDetailsPage() {
     }
   }, []);
 
+  const loadPartnerReviews = useCallback(async () => {
+    try {
+      setReviewsLoading(true);
+      setReviewsError(null);
+
+      const response = await api.get<PartnerReview[]>(
+        `/partners/${partnerId}/reviews`,
+      );
+
+      setReviews(Array.isArray(response.data) ? response.data : []);
+    } catch {
+      setReviews([]);
+      setReviewsError('Impossible de charger les avis clients.');
+    } finally {
+      setReviewsLoading(false);
+    }
+  }, [partnerId]);
+
   useEffect(() => {
     const token = getAccessToken();
     const user = getCurrentUser();
@@ -278,12 +352,13 @@ export default function AdminPartnerDetailsPage() {
 
       void loadPartner();
       void loadFinance();
+      void loadPartnerReviews();
     }, 0);
 
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [partnerId, loadPartner, loadFinance]);
+  }, [partnerId, loadPartner, loadFinance, loadPartnerReviews]);
 
   const partnerCommissions = useMemo(() => {
     return (finance?.recentCommissions ?? []).filter(
@@ -460,7 +535,7 @@ export default function AdminPartnerDetailsPage() {
             </p>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             <FinanceStat
               icon={<Wallet className="h-5 w-5" />}
               label="Solde portefeuille"
@@ -471,6 +546,13 @@ export default function AdminPartnerDetailsPage() {
               icon={<BadgePercent className="h-5 w-5" />}
               label="Commissions prélevées"
               value={formatMoney(totalCommission)}
+            />
+
+            <FinanceStat
+              icon={<Star className="h-5 w-5" />}
+              label="Note moyenne"
+              value={formatRating(partner.averageRating)}
+              subtitle={formatReviewsCount(partner.reviewsCount)}
             />
 
             <FinanceStat
@@ -529,6 +611,14 @@ export default function AdminPartnerDetailsPage() {
                   </p>
                 </div>
               </section>
+
+              <AdminPartnerReviewsSection
+                averageRating={partner.averageRating}
+                reviewsCount={partner.reviewsCount}
+                reviews={reviews}
+                loading={reviewsLoading}
+                error={reviewsError}
+              />
 
               <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
@@ -916,14 +1006,135 @@ export default function AdminPartnerDetailsPage() {
   );
 }
 
+function AdminPartnerReviewsSection({
+  averageRating,
+  reviewsCount,
+  reviews,
+  loading,
+  error,
+}: {
+  averageRating: string;
+  reviewsCount: number;
+  reviews: PartnerReview[];
+  loading: boolean;
+  error: string | null;
+}) {
+  return (
+    <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-col gap-4 border-b border-slate-100 pb-5 md:flex-row md:items-start md:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-[var(--ofna-green)]">
+            <Star className="h-5 w-5" />
+
+            <h3 className="text-lg font-bold text-[var(--ofna-dark)]">
+              Avis clients
+            </h3>
+          </div>
+
+          <p className="mt-1 text-sm leading-6 text-slate-500">
+            Supervisez les retours laissés par les clients après les missions
+            terminées.
+          </p>
+        </div>
+
+        <div className="rounded-3xl bg-[var(--ofna-green-soft)] px-4 py-3 text-right">
+          <p className="text-2xl font-black text-[var(--ofna-dark)]">
+            {formatRating(averageRating)}
+          </p>
+
+          <p className="text-xs font-bold text-[var(--ofna-green)]">
+            {formatReviewsCount(reviewsCount)}
+          </p>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-500">
+          Chargement des avis clients...
+        </div>
+      ) : error ? (
+        <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
+          {error}
+        </div>
+      ) : reviews.length === 0 ? (
+        <div className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">
+          Aucun avis client pour ce partenaire.
+        </div>
+      ) : (
+        <div className="mt-5 space-y-3">
+          {reviews.slice(0, 5).map((review) => (
+            <div
+              key={review.id}
+              className="rounded-2xl border border-slate-100 bg-slate-50 p-4"
+            >
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: 5 }).map((_, index) => {
+                      const selected = index < review.rating;
+
+                      return (
+                        <Star
+                          key={`${review.id}-${index}`}
+                          className={`h-4 w-4 ${
+                            selected
+                              ? 'fill-amber-400 text-amber-400'
+                              : 'text-slate-300'
+                          }`}
+                        />
+                      );
+                    })}
+                  </div>
+
+                  <p className="mt-2 text-sm font-black text-[var(--ofna-dark)]">
+                    {getMissionReviewLabel(review)}
+                  </p>
+
+                  {review.comment ? (
+                    <p className="mt-2 text-sm leading-6 text-slate-600">
+                      {review.comment}
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-sm text-slate-400">
+                      Aucun commentaire.
+                    </p>
+                  )}
+                </div>
+
+                <div className="shrink-0 rounded-2xl bg-white px-3 py-2 text-left md:text-right">
+                  <p className="text-xs font-bold text-[var(--ofna-dark)]">
+                    {getClientName(review)}
+                  </p>
+
+                  <p className="mt-1 text-xs font-semibold text-slate-500">
+                    {formatDateTime(review.publishedAt ?? review.createdAt)}
+                  </p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {reviews.length > 5 ? (
+        <p className="mt-4 text-sm font-semibold text-slate-500">
+          {reviews.length - 5} autre(s) avis non affiché(s) dans cet aperçu.
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
 function FinanceStat({
   icon,
   label,
   value,
+  subtitle,
 }: {
   icon: ReactNode;
   label: string;
   value: string;
+  subtitle?: string;
 }) {
   return (
     <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
@@ -935,6 +1146,12 @@ function FinanceStat({
       <p className="mt-3 text-2xl font-black tracking-[-0.03em] text-[var(--ofna-dark)]">
         {value}
       </p>
+
+      {subtitle ? (
+        <p className="mt-1 text-sm font-semibold text-slate-500">
+          {subtitle}
+        </p>
+      ) : null}
     </div>
   );
 }

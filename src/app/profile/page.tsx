@@ -31,6 +31,7 @@ import { getPartnerToken, updateCurrentUser } from '@/lib/auth';
 import {
   PartnerDashboardResponse,
   PartnerProfile,
+  PartnerReview,
   PartnerUser,
 } from '@/lib/types';
 
@@ -112,17 +113,92 @@ function getWalletStatusLabel(status: string | null | undefined) {
   return labels[normalized] ?? status ?? 'Non défini';
 }
 
-function getActivityTypeLabel(type: string | null | undefined) {
-  const normalized = String(type ?? '').toLowerCase();
+function formatRating(value: string | number | null | undefined) {
+  const rating = Number(value ?? 0);
 
-  const labels: Record<string, string> = {
-    depanneur: 'Dépanneur',
-    remorqueur: 'Remorqueur',
-    garagiste: 'Garagiste',
-    vendeur_pieces: 'Vendeur de pièces',
+  if (Number.isNaN(rating) || rating <= 0) {
+    return 'Aucun avis';
+  }
+
+  return `${rating.toFixed(1)}/5`;
+}
+
+function formatReviewsCount(value: number | null | undefined) {
+  const count = Number(value ?? 0);
+
+  if (count <= 0) {
+    return '0 avis';
+  }
+
+  return `${count} avis`;
+}
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return '—';
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return '—';
+
+  return date.toLocaleString('fr-FR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function getClientName(review: PartnerReview) {
+  const firstName = review.client?.firstName ?? '';
+  const lastName = review.client?.lastName ?? '';
+  const name = `${firstName} ${lastName}`.trim();
+
+  return name || 'Client OFNA';
+}
+
+function getReviewTypeLabel(review: PartnerReview) {
+  return review.reviewType === 'order' ? 'Commande boutique' : 'Mission';
+}
+
+function getReviewTypeClasses(review: PartnerReview) {
+  if (review.reviewType === 'order') {
+    return 'bg-[var(--ofna-green-soft)] text-[var(--ofna-green)]';
+  }
+
+  return 'bg-slate-100 text-slate-500';
+}
+
+function getReviewLabel(review: PartnerReview) {
+  if (review.reviewType === 'order') {
+    const productName = review.order?.product?.name;
+
+    if (productName && productName.trim()) {
+      return `Commande boutique · ${productName}`;
+    }
+
+    return 'Commande boutique';
+  }
+
+  const mission = review.mission;
+
+  if (!mission) {
+    return 'Mission OFNA';
+  }
+
+  const typeLabels: Record<string, string> = {
+    depannage: 'Dépannage',
+    remorquage: 'Remorquage',
   };
 
-  return labels[normalized] ?? type ?? 'Non renseigné';
+  const missionType =
+    typeLabels[String(mission.missionType ?? '').toLowerCase()] ?? 'Mission';
+
+  const details = [mission.panneType, mission.vehicleType]
+    .filter((value): value is string => Boolean(value && value.trim()))
+    .join(' · ');
+
+  return details ? `Mission · ${missionType} · ${details}` : `Mission · ${missionType}`;
 }
 
 function isDecimalString(value: string) {
@@ -161,6 +237,19 @@ function buildOptionalPayload(form: ProfileFormState) {
   return payload;
 }
 
+function getActivityTypeLabel(type: string | null | undefined) {
+  const normalized = String(type ?? '').toLowerCase();
+
+  const labels: Record<string, string> = {
+    depanneur: 'Dépanneur',
+    remorqueur: 'Remorqueur',
+    garagiste: 'Garagiste',
+    vendeur_pieces: 'Vendeur de pièces',
+  };
+
+  return labels[normalized] ?? type ?? 'Non renseigné';
+}
+
 export default function ProfilePage() {
   const [partnerProfile, setPartnerProfile] = useState<PartnerProfile | null>(
     null,
@@ -168,6 +257,10 @@ export default function ProfilePage() {
   const [dashboard, setDashboard] = useState<PartnerDashboardResponse | null>(
     null,
   );
+
+  const [reviews, setReviews] = useState<PartnerReview[]>([]);
+  const [loadingReviews, setLoadingReviews] = useState(false);
+  const [reviewsError, setReviewsError] = useState<string | null>(null);
 
   const [form, setForm] = useState<ProfileFormState>({
     activityType: 'depanneur',
@@ -227,15 +320,34 @@ export default function ProfilePage() {
     });
   }, []);
 
-  const syncAccountFormWithProfile = useCallback((nextProfile: PartnerProfile) => {
-    setAccountForm({
-      firstName: nextProfile.user?.firstName ?? '',
-      lastName: nextProfile.user?.lastName ?? '',
-      phone: nextProfile.user?.phone ?? '',
-      email: nextProfile.user?.email ?? '',
-    });
-  }, []);
+  const syncAccountFormWithProfile = useCallback(
+    (nextProfile: PartnerProfile) => {
+      setAccountForm({
+        firstName: nextProfile.user?.firstName ?? '',
+        lastName: nextProfile.user?.lastName ?? '',
+        phone: nextProfile.user?.phone ?? '',
+        email: nextProfile.user?.email ?? '',
+      });
+    },
+    [],
+  );
 
+  const loadPartnerReviews = useCallback(async (partnerProfileId: string) => {
+    try {
+      setLoadingReviews(true);
+      setReviewsError(null);
+
+      const response = await api.get<PartnerReview[]>(
+        `/partners/${partnerProfileId}/reviews`,
+      );
+
+      setReviews(Array.isArray(response.data) ? response.data : []);
+    } catch {
+      setReviewsError('Impossible de charger les avis clients.');
+    } finally {
+      setLoadingReviews(false);
+    }
+  }, []);
 
   const loadProfile = useCallback(async () => {
     try {
@@ -246,16 +358,24 @@ export default function ProfilePage() {
         api.get<PartnerDashboardResponse>('/partners/me/dashboard'),
       ]);
 
+      let loadedProfile: PartnerProfile | null = null;
+
       if (profileResult.status === 'fulfilled') {
+        loadedProfile = profileResult.value.data;
         setPartnerProfile(profileResult.value.data);
         syncFormWithProfile(profileResult.value.data);
         syncAccountFormWithProfile(profileResult.value.data);
       }
 
       if (dashboardResult.status === 'fulfilled') {
+        loadedProfile = dashboardResult.value.data.partnerProfile;
         setDashboard(dashboardResult.value.data);
         syncFormWithProfile(dashboardResult.value.data.partnerProfile);
         syncAccountFormWithProfile(dashboardResult.value.data.partnerProfile);
+      }
+
+      if (loadedProfile?.id) {
+        void loadPartnerReviews(loadedProfile.id);
       }
 
       if (
@@ -270,9 +390,9 @@ export default function ProfilePage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [syncFormWithProfile, syncAccountFormWithProfile]);
+  }, [syncFormWithProfile, syncAccountFormWithProfile, loadPartnerReviews]);
 
-    useEffect(() => {
+  useEffect(() => {
     const token = getPartnerToken();
 
     if (!token) {
@@ -745,8 +865,8 @@ export default function ProfilePage() {
             </div>
 
             <p className="mt-2 text-sm leading-6 text-slate-500">
-              Modifiez vos informations personnelles de connexion : prénom, nom, téléphone
-              et email.
+              Modifiez vos informations personnelles de connexion : prénom, nom,
+              téléphone et email.
             </p>
 
             <div className="mt-6 grid gap-4 md:grid-cols-2">
@@ -824,6 +944,67 @@ export default function ProfilePage() {
             </button>
           </form>
 
+          <section className="grid gap-4 md:grid-cols-3">
+            <div className="rounded-[32px] border border-[var(--ofna-border)] bg-white p-6 shadow-sm">
+              <div className="flex items-center gap-2 text-[var(--ofna-green)]">
+                <Wallet className="h-5 w-5" />
+                <h3 className="text-lg font-black text-[var(--ofna-dark)]">
+                  Portefeuille
+                </h3>
+              </div>
+
+              <p className="mt-4 text-2xl font-black tracking-[-0.03em] text-[var(--ofna-dark)]">
+                {formatMoney(wallet?.balance)}
+              </p>
+
+              <p className="mt-1 text-sm text-slate-500">
+                Statut : {getWalletStatusLabel(wallet?.walletStatus)}
+              </p>
+
+              <Link
+                href="/transactions"
+                className="mt-4 inline-flex rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 transition hover:border-[var(--ofna-green)] hover:bg-[var(--ofna-green-soft)]"
+              >
+                Voir les mouvements
+              </Link>
+            </div>
+
+            <div className="rounded-[32px] border border-[var(--ofna-border)] bg-white p-6 shadow-sm">
+              <div className="flex items-center gap-2 text-[var(--ofna-green)]">
+                <MapPin className="h-5 w-5" />
+                <h3 className="text-lg font-black text-[var(--ofna-dark)]">
+                  Localisation
+                </h3>
+              </div>
+
+              <p className="mt-4 text-sm leading-6 text-slate-500">
+                {profile.latitude && profile.longitude
+                  ? `Coordonnées enregistrées : ${profile.latitude}, ${profile.longitude}`
+                  : 'Aucune coordonnée GPS précise n’est encore enregistrée.'}
+              </p>
+            </div>
+
+            <div className="rounded-[32px] border border-[var(--ofna-border)] bg-white p-6 shadow-sm">
+              <div className="flex items-center gap-2 text-slate-600">
+                {profile.isVisible ? (
+                  <Eye className="h-5 w-5" />
+                ) : (
+                  <EyeOff className="h-5 w-5" />
+                )}
+
+                <h3 className="text-lg font-black text-[var(--ofna-dark)]">
+                  Visibilité
+                </h3>
+              </div>
+
+              <p className="mt-4 text-sm leading-6 text-slate-500">
+                {profile.isVisible
+                  ? 'Votre profil est visible dans l’application.'
+                  : 'Votre profil n’est pas encore visible dans l’application.'}
+              </p>
+            </div>
+          </section>
+
           <section className="grid gap-6 2xl:grid-cols-[minmax(0,1fr)_minmax(520px,0.9fr)]">
             <div className="space-y-6">
               <div className="rounded-[32px] border border-[var(--ofna-border)] bg-white p-6 shadow-sm">
@@ -839,7 +1020,9 @@ export default function ProfilePage() {
 
                   <DetailItem
                     label="Disponibilité"
-                    value={profile.isAvailable ? 'Disponible' : 'Non disponible'}
+                    value={
+                      profile.isAvailable ? 'Disponible' : 'Non disponible'
+                    }
                   />
 
                   <DetailItem
@@ -875,7 +1058,8 @@ export default function ProfilePage() {
                   </div>
                 ) : (
                   <div className="mt-6 rounded-3xl bg-slate-50 p-5 text-sm text-slate-500">
-                    Aucune description professionnelle n’a encore été renseignée.
+                    Aucune description professionnelle n’a encore été
+                    renseignée.
                   </div>
                 )}
               </div>
@@ -1048,83 +1232,149 @@ export default function ProfilePage() {
             </div>
 
             <div className="space-y-6">
+              <PartnerReviewsSection
+                averageRating={profile.averageRating}
+                reviewsCount={profile.reviewsCount}
+                reviews={reviews}
+                loading={loadingReviews}
+                error={reviewsError}
+              />
+
               <PartnerDocumentsManager
                 initialDocuments={documents}
                 onProfileUpdated={handleProfileUpdatedFromDocuments}
               />
-
-              <div className="rounded-[32px] border border-[var(--ofna-border)] bg-white p-6 shadow-sm">
-                <div className="flex items-center gap-2 text-[var(--ofna-green)]">
-                  <Wallet className="h-5 w-5" />
-                  <h3 className="text-xl font-black text-[var(--ofna-dark)]">
-                    Portefeuille
-                  </h3>
-                </div>
-
-                <p className="mt-5 text-3xl font-black tracking-[-0.03em] text-[var(--ofna-dark)]">
-                  {formatMoney(wallet?.balance)}
-                </p>
-
-                <p className="mt-2 text-sm text-slate-500">
-                  Statut : {getWalletStatusLabel(wallet?.walletStatus)}
-                </p>
-
-                <Link
-                  href="/transactions"
-                  className="mt-4 inline-flex rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 transition hover:border-[var(--ofna-green)] hover:bg-[var(--ofna-green-soft)]"
-                >
-                  Voir les mouvements
-                </Link>
-              </div>
-
-              <div className="rounded-[32px] border border-[var(--ofna-border)] bg-white p-6 shadow-sm">
-                <div className="flex items-start gap-3">
-                  <div className="rounded-2xl bg-[var(--ofna-green-soft)] p-2 text-[var(--ofna-green)]">
-                    <MapPin className="h-5 w-5" />
-                  </div>
-
-                  <div>
-                    <h3 className="text-lg font-black text-[var(--ofna-dark)]">
-                      Localisation
-                    </h3>
-
-                    <p className="mt-2 text-sm leading-6 text-slate-500">
-                      {profile.latitude && profile.longitude
-                        ? `Coordonnées enregistrées : ${profile.latitude}, ${profile.longitude}`
-                        : 'Aucune coordonnée GPS précise n’est encore enregistrée.'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-[32px] border border-[var(--ofna-border)] bg-white p-6 shadow-sm">
-                <div className="flex items-start gap-3">
-                  <div className="rounded-2xl bg-slate-50 p-2 text-slate-600">
-                    {profile.isVisible ? (
-                      <Eye className="h-5 w-5" />
-                    ) : (
-                      <EyeOff className="h-5 w-5" />
-                    )}
-                  </div>
-
-                  <div>
-                    <h3 className="text-lg font-black text-[var(--ofna-dark)]">
-                      Visibilité
-                    </h3>
-
-                    <p className="mt-2 text-sm leading-6 text-slate-500">
-                      {profile.isVisible
-                        ? 'Votre profil est visible dans l’application.'
-                        : 'Votre profil n’est pas encore visible dans l’application.'}
-                    </p>
-                  </div>
-                </div>
-              </div>
             </div>
           </section>
         </div>
       ) : null}
     </DashboardShell>
+  );
+}
+
+function PartnerReviewsSection({
+  averageRating,
+  reviewsCount,
+  reviews,
+  loading,
+  error,
+}: {
+  averageRating: string;
+  reviewsCount: number;
+  reviews: PartnerReview[];
+  loading: boolean;
+  error: string | null;
+}) {
+  return (
+    <section className="rounded-[32px] border border-[var(--ofna-border)] bg-white p-6 shadow-sm">
+      <div className="flex flex-col gap-4 border-b border-slate-100 pb-5 md:flex-row md:items-start md:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-[var(--ofna-green)]">
+            <Star className="h-5 w-5" />
+            <h3 className="text-xl font-black text-[var(--ofna-dark)]">
+              Avis clients
+            </h3>
+          </div>
+
+          <p className="mt-2 text-sm leading-6 text-slate-500">
+            Consultez les derniers retours laissés par vos clients après les
+            missions terminées et les commandes boutique finalisées.
+          </p>
+        </div>
+
+        <div className="rounded-3xl bg-[var(--ofna-green-soft)] px-4 py-3 text-right">
+          <p className="text-2xl font-black text-[var(--ofna-dark)]">
+            {formatRating(averageRating)}
+          </p>
+
+          <p className="text-xs font-bold text-[var(--ofna-green)]">
+            {formatReviewsCount(reviewsCount)}
+          </p>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="mt-5 rounded-3xl bg-slate-50 p-5 text-sm font-semibold text-slate-500">
+          Chargement des avis clients...
+        </div>
+      ) : error ? (
+        <div className="mt-5 rounded-3xl border border-red-200 bg-red-50 p-5 text-sm font-semibold text-red-700">
+          {error}
+        </div>
+      ) : reviews.length === 0 ? (
+        <div className="mt-5 rounded-3xl bg-slate-50 p-5 text-sm font-semibold text-slate-500">
+          Aucun avis client pour le moment.
+        </div>
+      ) : (
+        <div className="mt-5 space-y-3">
+          {reviews.slice(0, 5).map((review) => (
+            <div
+              key={review.id}
+              className="rounded-3xl border border-slate-100 bg-slate-50 p-4"
+            >
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: 5 }).map((_, index) => {
+                      const selected = index < review.rating;
+
+                      return (
+                        <Star
+                          key={`${review.id}-${index}`}
+                          className={`h-4 w-4 ${
+                            selected
+                              ? 'fill-amber-400 text-amber-400'
+                              : 'text-slate-300'
+                          }`}
+                        />
+                      );
+                    })}
+                  </div>
+
+                  <span
+                    className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-black ${getReviewTypeClasses(
+                      review,
+                    )}`}
+                  >
+                    {getReviewTypeLabel(review)}
+                  </span>
+
+                  <p className="mt-2 text-sm font-black text-[var(--ofna-dark)]">
+                    {getReviewLabel(review)}
+                  </p>
+
+                  {review.comment ? (
+                    <p className="mt-2 text-sm leading-6 text-slate-600">
+                      {review.comment}
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-sm text-slate-400">
+                      Aucun commentaire.
+                    </p>
+                  )}
+                </div>
+
+                <div className="shrink-0 rounded-2xl bg-white px-3 py-2 text-left md:text-right">
+                  <p className="text-xs font-bold text-[var(--ofna-dark)]">
+                    {getClientName(review)}
+                  </p>
+
+                  <p className="mt-1 text-xs font-semibold text-slate-500">
+                    {formatDateTime(review.publishedAt ?? review.createdAt)}
+                  </p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {reviews.length > 5 ? (
+        <p className="mt-4 text-sm font-semibold text-slate-500">
+          {reviews.length - 5} autre(s) avis non affiché(s) dans cet aperçu.
+        </p>
+      ) : null}
+    </section>
   );
 }
 

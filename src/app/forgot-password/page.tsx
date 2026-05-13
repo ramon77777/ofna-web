@@ -76,7 +76,7 @@ export default function ForgotPasswordPage() {
             <div className="mb-6 flex items-center gap-4">
               <div className="relative h-16 w-16 overflow-hidden rounded-2xl border border-slate-200 bg-white p-2">
                 <Image
-                  src="/ofna-logo.jpeg"
+                  src="/ofna-logo.jpg"
                   alt="Logo OFNA Dépannage"
                   fill
                   className="object-contain p-2"
