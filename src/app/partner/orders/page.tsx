@@ -1,0 +1,676 @@
+'use client';
+
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  CheckCircle2,
+  Clock3,
+  PackageCheck,
+  RefreshCcw,
+  ShoppingCart,
+  Truck,
+  XCircle,
+} from 'lucide-react';
+
+import DashboardShell from '@/components/layout/DashboardShell';
+import { api } from '@/lib/api';
+import { getPartnerToken } from '@/lib/auth';
+
+type OrderFilter =
+  | 'all'
+  | 'pending'
+  | 'active'
+  | 'shipping'
+  | 'completed'
+  | 'cancelled';
+
+interface PartnerOrder {
+  id: string;
+  quantity: number;
+  proposedAmount: string | null;
+  validatedAmount: string | null;
+  deliveryFee?: string | null;
+  deliveryFeeConfirmedAt?: string | null;
+  paymentMode: string | null;
+  orderStatus: string;
+  validatedAt: string | null;
+  completedAt: string | null;
+  cancelledAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  client?: {
+    id: string;
+    firstName?: string | null;
+    lastName?: string | null;
+    phone?: string | null;
+    email?: string | null;
+  };
+  product?: {
+    id: string;
+    name: string;
+    category: string;
+    price: string;
+    mainPhotoUrl?: string | null;
+  };
+}
+
+const orderFilters: Array<{ value: OrderFilter; label: string }> = [
+  { value: 'all', label: 'Toutes' },
+  { value: 'pending', label: 'En attente' },
+  { value: 'active', label: 'En traitement' },
+  { value: 'shipping', label: 'En envoi' },
+  { value: 'completed', label: 'Terminées' },
+  { value: 'cancelled', label: 'Annulées' },
+];
+
+const nextStatusByCurrentStatus: Record<string, string | null> = {
+  en_attente: 'confirmee',
+  confirmee: 'en_traitement',
+  en_traitement: 'en_cours_envoi',
+  en_cours_envoi: 'terminee',
+  terminee: null,
+  annulee: null,
+};
+
+function formatMoney(value: string | number | null | undefined) {
+  if (value === null || value === undefined || value === '') return '—';
+
+  const amount = Number(value);
+
+  if (Number.isNaN(amount)) return '—';
+
+  return `${amount.toLocaleString('fr-FR', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  })} FCFA`;
+}
+
+function formatDate(value: string | null | undefined) {
+  if (!value) return '—';
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return '—';
+
+  return date.toLocaleString('fr-FR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function getClientName(order: PartnerOrder) {
+  const firstName = order.client?.firstName ?? '';
+  const lastName = order.client?.lastName ?? '';
+  const fullName = `${firstName} ${lastName}`.trim();
+
+  return fullName || 'Client non renseigné';
+}
+
+function getOrderAmount(order: PartnerOrder) {
+  return order.validatedAmount ?? order.proposedAmount;
+}
+
+function getTotalAmount(order: PartnerOrder) {
+  const articleAmount = Number(order.validatedAmount ?? order.proposedAmount ?? 0);
+  const deliveryFee = Number(order.deliveryFee ?? 0);
+
+  if (Number.isNaN(articleAmount)) return '—';
+
+  return formatMoney(articleAmount + (Number.isNaN(deliveryFee) ? 0 : deliveryFee));
+}
+
+function getOrderStatusLabel(status: string | null | undefined) {
+  const normalized = String(status ?? '').toLowerCase();
+
+  const labels: Record<string, string> = {
+    en_attente: 'En attente',
+    confirmee: 'Confirmée',
+    en_traitement: 'En traitement',
+    en_cours_envoi: 'En cours d’envoi',
+    terminee: 'Terminée',
+    annulee: 'Annulée',
+  };
+
+  return labels[normalized] ?? 'Statut inconnu';
+}
+
+function getNextStatusLabel(status: string | null | undefined) {
+  const normalized = String(status ?? '').toLowerCase();
+  const nextStatus = nextStatusByCurrentStatus[normalized];
+
+  if (!nextStatus) return null;
+
+  const labels: Record<string, string> = {
+    confirmee: 'Confirmer',
+    en_traitement: 'Passer en traitement',
+    en_cours_envoi: 'Passer en cours d’envoi',
+    terminee: 'Terminer',
+  };
+
+  return labels[nextStatus] ?? 'Avancer';
+}
+
+function getOrderStatusClasses(status: string | null | undefined) {
+  const normalized = String(status ?? '').toLowerCase();
+
+  if (normalized === 'terminee') {
+    return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+  }
+
+  if (normalized === 'annulee') {
+    return 'border-red-200 bg-red-50 text-red-700';
+  }
+
+  if (
+    normalized === 'confirmee' ||
+    normalized === 'en_traitement' ||
+    normalized === 'en_cours_envoi'
+  ) {
+    return 'border-blue-200 bg-blue-50 text-blue-700';
+  }
+
+  return 'border-amber-200 bg-amber-50 text-amber-700';
+}
+
+function getOrderStatusIcon(status: string | null | undefined) {
+  const normalized = String(status ?? '').toLowerCase();
+
+  if (normalized === 'terminee') {
+    return <CheckCircle2 className="h-4 w-4" />;
+  }
+
+  if (normalized === 'annulee') {
+    return <XCircle className="h-4 w-4" />;
+  }
+
+  if (normalized === 'en_cours_envoi') {
+    return <Truck className="h-4 w-4" />;
+  }
+
+  return <Clock3 className="h-4 w-4" />;
+}
+
+function getOrderFilterGroup(status: string | null | undefined): OrderFilter {
+  const normalized = String(status ?? '').toLowerCase();
+
+  if (normalized === 'en_attente') return 'pending';
+
+  if (normalized === 'confirmee' || normalized === 'en_traitement') {
+    return 'active';
+  }
+
+  if (normalized === 'en_cours_envoi') return 'shipping';
+
+  if (normalized === 'terminee') return 'completed';
+
+  if (normalized === 'annulee') return 'cancelled';
+
+  return 'pending';
+}
+
+function getFilterCount(
+  filter: OrderFilter,
+  stats: {
+    total: number;
+    pending: number;
+    active: number;
+    shipping: number;
+    completed: number;
+    cancelled: number;
+  },
+) {
+  if (filter === 'all') return stats.total;
+  if (filter === 'pending') return stats.pending;
+  if (filter === 'active') return stats.active;
+  if (filter === 'shipping') return stats.shipping;
+  if (filter === 'completed') return stats.completed;
+  return stats.cancelled;
+}
+
+export default function PartnerOrdersPage() {
+  const [orders, setOrders] = useState<PartnerOrder[]>([]);
+  const [selectedFilter, setSelectedFilter] = useState<OrderFilter>('all');
+
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
+
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  const loadOrders = useCallback(async () => {
+    try {
+      setError(null);
+
+      const response = await api.get<PartnerOrder[]>('/orders/partner/me');
+
+      setOrders(Array.isArray(response.data) ? response.data : []);
+    } catch {
+      setError(
+        "Impossible de charger vos commandes boutique. Vérifiez que le backend est lancé et que votre session partenaire est valide.",
+      );
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const token = getPartnerToken();
+
+    if (!token) {
+      window.location.replace('/login');
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      void loadOrders();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [loadOrders]);
+
+  const stats = useMemo(() => {
+    const pending = orders.filter(
+      (order) => getOrderFilterGroup(order.orderStatus) === 'pending',
+    ).length;
+
+    const active = orders.filter(
+      (order) => getOrderFilterGroup(order.orderStatus) === 'active',
+    ).length;
+
+    const shipping = orders.filter(
+      (order) => getOrderFilterGroup(order.orderStatus) === 'shipping',
+    ).length;
+
+    const completed = orders.filter(
+      (order) => getOrderFilterGroup(order.orderStatus) === 'completed',
+    ).length;
+
+    const cancelled = orders.filter(
+      (order) => getOrderFilterGroup(order.orderStatus) === 'cancelled',
+    ).length;
+
+    const completedAmount = orders
+      .filter((order) => order.orderStatus === 'terminee')
+      .reduce((sum, order) => sum + Number(getOrderAmount(order) ?? 0), 0);
+
+    return {
+      total: orders.length,
+      pending,
+      active,
+      shipping,
+      completed,
+      cancelled,
+      completedAmount,
+    };
+  }, [orders]);
+
+  const filteredOrders = useMemo(() => {
+    if (selectedFilter === 'all') return orders;
+
+    return orders.filter(
+      (order) => getOrderFilterGroup(order.orderStatus) === selectedFilter,
+    );
+  }, [orders, selectedFilter]);
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    void loadOrders();
+  };
+
+  const handleAdvanceStatus = async (order: PartnerOrder) => {
+    const currentStatus = String(order.orderStatus ?? '').toLowerCase();
+    const nextStatus = nextStatusByCurrentStatus[currentStatus];
+
+    if (!nextStatus) return;
+
+    setUpdatingOrderId(order.id);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const response = await api.patch<PartnerOrder>(
+        `/orders/${order.id}/status`,
+        {
+          orderStatus: nextStatus,
+        },
+      );
+
+      setOrders((currentOrders) =>
+        currentOrders.map((currentOrder) =>
+          currentOrder.id === order.id ? response.data : currentOrder,
+        ),
+      );
+
+      setSuccess('Statut de la commande mis à jour avec succès.');
+    } catch {
+      setError('Impossible de mettre à jour le statut de cette commande.');
+    } finally {
+      setUpdatingOrderId(null);
+    }
+  };
+
+  const handleCancelOrder = async (order: PartnerOrder) => {
+    const confirmed = window.confirm(
+      'Voulez-vous vraiment annuler cette commande ?',
+    );
+
+    if (!confirmed) return;
+
+    setUpdatingOrderId(order.id);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const response = await api.patch<PartnerOrder>(
+        `/orders/${order.id}/status`,
+        {
+          orderStatus: 'annulee',
+        },
+      );
+
+      setOrders((currentOrders) =>
+        currentOrders.map((currentOrder) =>
+          currentOrder.id === order.id ? response.data : currentOrder,
+        ),
+      );
+
+      setSuccess('Commande annulée avec succès.');
+    } catch {
+      setError('Impossible d’annuler cette commande.');
+    } finally {
+      setUpdatingOrderId(null);
+    }
+  };
+
+  return (
+    <DashboardShell>
+      <div className="mb-8 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-[0.22em] text-[var(--ofna-green)]">
+            Commandes boutique
+          </p>
+
+          <h2 className="mt-2 text-4xl font-black tracking-[-0.03em] text-[var(--ofna-dark)]">
+            Commandes reçues
+          </h2>
+
+          <p className="mt-3 max-w-3xl text-base leading-7 text-slate-500">
+            Consultez les commandes passées par les clients, confirmez leur
+            traitement, suivez l’envoi et terminez les ventes de pièces.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleRefresh}
+          disabled={refreshing}
+          className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 transition hover:border-[var(--ofna-green)] hover:bg-[var(--ofna-green-soft)] disabled:opacity-60"
+        >
+          <RefreshCcw className="h-4 w-4" />
+          {refreshing ? 'Actualisation...' : 'Actualiser'}
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 text-sm font-semibold text-slate-600">
+          Chargement des commandes boutique...
+        </div>
+      ) : null}
+
+      {error ? (
+        <div className="mb-4 rounded-3xl border border-red-200 bg-red-50 p-5 text-sm font-semibold text-red-700">
+          {error}
+        </div>
+      ) : null}
+
+      {success ? (
+        <div className="mb-4 rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-sm font-semibold text-emerald-700">
+          {success}
+        </div>
+      ) : null}
+
+      {!loading && !error ? (
+        <div className="space-y-6">
+          <section className="grid gap-4 md:grid-cols-5">
+            <StatCard
+              title="Total commandes"
+              value={String(stats.total)}
+              icon={<ShoppingCart className="h-5 w-5" />}
+            />
+
+            <StatCard
+              title="En attente"
+              value={String(stats.pending)}
+              icon={<Clock3 className="h-5 w-5" />}
+            />
+
+            <StatCard
+              title="En traitement"
+              value={String(stats.active)}
+              icon={<PackageCheck className="h-5 w-5" />}
+            />
+
+            <StatCard
+              title="Terminées"
+              value={String(stats.completed)}
+              icon={<CheckCircle2 className="h-5 w-5" />}
+            />
+
+            <StatCard
+              title="Montant terminé"
+              value={formatMoney(stats.completedAmount)}
+              icon={<PackageCheck className="h-5 w-5" />}
+            />
+          </section>
+
+          <section className="rounded-[32px] border border-[var(--ofna-border)] bg-white shadow-sm">
+            <div className="flex flex-col gap-4 border-b border-slate-100 p-6">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h3 className="text-2xl font-black text-[var(--ofna-dark)]">
+                    Historique des commandes
+                  </h3>
+
+                  <p className="mt-1 text-sm text-slate-500">
+                    {filteredOrders.length} commande(s) affichée(s) sur{' '}
+                    {orders.length}.
+                  </p>
+                </div>
+
+                <div className="rounded-2xl bg-[var(--ofna-green-soft)] p-3 text-[var(--ofna-green)]">
+                  <ShoppingCart className="h-5 w-5" />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {orderFilters.map((filter) => {
+                  const selected = selectedFilter === filter.value;
+                  const count = getFilterCount(filter.value, stats);
+
+                  return (
+                    <button
+                      key={filter.value}
+                      type="button"
+                      onClick={() => setSelectedFilter(filter.value)}
+                      className={`inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-black transition ${
+                        selected
+                          ? 'bg-[var(--ofna-green)] text-white shadow-lg shadow-[rgba(22,163,74,0.22)]'
+                          : 'border border-slate-200 bg-white text-slate-600 hover:border-[var(--ofna-green)] hover:text-[var(--ofna-green)]'
+                      }`}
+                    >
+                      <span>{filter.label}</span>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-xs ${
+                          selected
+                            ? 'bg-white/20 text-white'
+                            : 'bg-slate-100 text-slate-500'
+                        }`}
+                      >
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {filteredOrders.length === 0 ? (
+              <div className="p-6 text-sm font-medium text-slate-500">
+                Aucune commande trouvée dans cette catégorie.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-left text-sm">
+                  <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-500">
+                    <tr>
+                      <th className="px-6 py-4">Produit</th>
+                      <th className="px-6 py-4">Client</th>
+                      <th className="px-6 py-4">Quantité</th>
+                      <th className="px-6 py-4">Article</th>
+                      <th className="px-6 py-4">Livraison</th>
+                      <th className="px-6 py-4">Total</th>
+                      <th className="px-6 py-4">Statut</th>
+                      <th className="px-6 py-4">Date</th>
+                      <th className="px-6 py-4">Action</th>
+                    </tr>
+                  </thead>
+
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredOrders.map((order) => {
+                      const nextStatusLabel = getNextStatusLabel(
+                        order.orderStatus,
+                      );
+                      const canCancel = order.orderStatus === 'en_attente';
+                      const updating = updatingOrderId === order.id;
+
+                      return (
+                        <tr
+                          key={order.id}
+                          className="text-slate-700 transition hover:bg-slate-50"
+                        >
+                          <td className="px-6 py-4">
+                            <div>
+                              <p className="font-black text-[var(--ofna-dark)]">
+                                {order.product?.name ?? 'Produit'}
+                              </p>
+
+                              <p className="mt-1 text-xs font-semibold text-slate-500">
+                                {order.product?.category ?? 'Catégorie inconnue'}
+                              </p>
+                            </div>
+                          </td>
+
+                          <td className="px-6 py-4">
+                            <p className="font-semibold text-slate-700">
+                              {getClientName(order)}
+                            </p>
+
+                            {order.client?.phone ? (
+                              <p className="mt-1 text-xs text-slate-500">
+                                {order.client.phone}
+                              </p>
+                            ) : null}
+                          </td>
+
+                          <td className="px-6 py-4 font-semibold">
+                            {order.quantity}
+                          </td>
+
+                          <td className="px-6 py-4 font-semibold">
+                            {formatMoney(getOrderAmount(order))}
+                          </td>
+
+                          <td className="px-6 py-4">
+                            {order.deliveryFee
+                              ? formatMoney(order.deliveryFee)
+                              : 'À confirmer'}
+                          </td>
+
+                          <td className="px-6 py-4 font-black text-[var(--ofna-dark)]">
+                            {getTotalAmount(order)}
+                          </td>
+
+                          <td className="px-6 py-4">
+                            <span
+                              className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-bold ${getOrderStatusClasses(
+                                order.orderStatus,
+                              )}`}
+                            >
+                              {getOrderStatusIcon(order.orderStatus)}
+                              {getOrderStatusLabel(order.orderStatus)}
+                            </span>
+                          </td>
+
+                          <td className="px-6 py-4 text-slate-500">
+                            {formatDate(order.createdAt)}
+                          </td>
+
+                          <td className="px-6 py-4">
+                            <div className="flex flex-wrap gap-2">
+                              {nextStatusLabel ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleAdvanceStatus(order)}
+                                  disabled={updating}
+                                  className="inline-flex items-center justify-center rounded-2xl bg-[var(--ofna-green)] px-4 py-2 text-sm font-bold text-white transition hover:bg-[var(--ofna-green-dark)] disabled:opacity-60"
+                                >
+                                  {updating
+                                    ? 'Traitement...'
+                                    : nextStatusLabel}
+                                </button>
+                              ) : null}
+
+                              {canCancel ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleCancelOrder(order)}
+                                  disabled={updating}
+                                  className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-bold text-red-600 transition hover:bg-red-50 disabled:opacity-60"
+                                >
+                                  Annuler
+                                </button>
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </div>
+      ) : null}
+    </DashboardShell>
+  );
+}
+
+function StatCard({
+  title,
+  value,
+  icon,
+}: {
+  title: string;
+  value: string;
+  icon: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-[28px] border border-[var(--ofna-border)] bg-white p-5 shadow-sm">
+      <div className="flex items-center gap-2 text-[var(--ofna-green)]">
+        {icon}
+        <p className="text-sm font-semibold">{title}</p>
+      </div>
+
+      <p className="mt-3 text-2xl font-black text-[var(--ofna-dark)]">
+        {value}
+      </p>
+    </div>
+  );
+}

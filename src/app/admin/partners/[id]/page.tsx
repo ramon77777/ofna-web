@@ -22,8 +22,6 @@ import {
   Phone,
   ReceiptText,
   Star,
-  ToggleLeft,
-  ToggleRight,
   User,
   Wallet,
 } from 'lucide-react';
@@ -798,7 +796,7 @@ export default function AdminPartnerDetailsPage() {
                   />
                 </div>
 
-                {!partner.isVisible ? (
+                
                   <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
                     <div className="flex items-start gap-3">
                       <div
@@ -822,7 +820,7 @@ export default function AdminPartnerDetailsPage() {
 
                         <p className="mt-1 text-sm leading-6 text-slate-600">
                           {partner.isVisible
-                            ? 'Ce partenaire est actuellement visible dans l’application.'
+                            ? 'Ce partenaire est actuellement visible dans l’application. Vous pouvez le masquer en cas de mauvais retours clients, contrôle qualité ou suspension temporaire.'
                             : canToggleVisibility
                               ? 'Tous les documents sont validés. Vous pouvez rendre ce partenaire visible.'
                               : 'Le partenaire doit être validé ou avoir tous ses documents validés avant de pouvoir être rendu visible.'}
@@ -831,29 +829,31 @@ export default function AdminPartnerDetailsPage() {
                         <button
                           type="button"
                           onClick={handleToggleVisibility}
-                          disabled={savingVisibility || !canToggleVisibility}
+                          disabled={
+                            savingVisibility ||
+                            (!partner.isVisible && !canToggleVisibility)
+                          }
                           className={`mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-60 ${
                             partner.isVisible
-                              ? 'border border-slate-200 bg-white text-slate-700 hover:border-red-200 hover:bg-red-50 hover:text-red-600'
+                              ? 'border border-red-200 bg-red-50 text-red-600 hover:bg-red-100'
                               : 'bg-[var(--ofna-green)] text-white hover:bg-[var(--ofna-green-dark)]'
                           }`}
                         >
                           {partner.isVisible ? (
-                            <ToggleRight className="h-4 w-4" />
+                            <EyeOff className="h-4 w-4" />
                           ) : (
-                            <ToggleLeft className="h-4 w-4" />
+                            <Eye className="h-4 w-4" />
                           )}
 
                           {savingVisibility
                             ? 'Mise à jour...'
                             : partner.isVisible
-                              ? 'Masquer le partenaire'
+                              ? 'Rendre invisible'
                               : 'Rendre visible'}
                         </button>
                       </div>
                     </div>
                   </div>
-                ) : null}
               </section>
 
               <form

@@ -226,38 +226,52 @@ useEffect(() => {
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  event.preventDefault();
 
-    const numericAmount = Number(amount);
+  const numericAmount = Number(amount);
 
-    if (Number.isNaN(numericAmount) || numericAmount <= 0) {
-      setError('Le montant doit être supérieur à 0.');
-      return;
-    }
+  if (Number.isNaN(numericAmount) || numericAmount <= 0) {
+    setError('Le montant doit être supérieur à 0.');
+    return;
+  }
 
-    setSubmitting(true);
-    setError(null);
-    setSuccess(null);
+  setSubmitting(true);
+  setError(null);
+  setSuccess(null);
 
-    try {
-      const response = await api.post<PartnerRecharge>('/wallet-recharges', {
-        amount: numericAmount,
-        rechargeMode,
-      });
+  try {
+    const response = await api.post<PartnerRecharge>('/wallet-recharges', {
+      amount: amount.trim(),
+      rechargeMode,
+    });
 
-      setSubmittedRecharge(response.data);
+    setSubmittedRecharge(response.data);
 
-      setSuccess(
-        'Recharge soumise avec succès. Elle reste en attente et ne créditera votre portefeuille qu’après validation par l’administration.',
-      );
-      setAmount('');
-      await loadRecharges();
-    } catch {
-      setError('Impossible de soumettre cette recharge.');
-    } finally {
-      setSubmitting(false);
-    }
-  };
+    setSuccess(
+      'Recharge soumise avec succès. Elle reste en attente et ne créditera votre portefeuille qu’après validation par l’administration.',
+    );
+
+    setAmount('');
+    await loadRecharges();
+  } catch (error) {
+    const responseMessage =
+      typeof error === 'object' &&
+      error !== null &&
+      'response' in error &&
+      (error as { response?: { data?: { message?: unknown } } }).response?.data
+        ?.message;
+
+    setError(
+      Array.isArray(responseMessage)
+        ? responseMessage.join(' ')
+        : typeof responseMessage === 'string'
+          ? responseMessage
+          : 'Impossible de soumettre cette recharge.',
+    );
+  } finally {
+    setSubmitting(false);
+  }
+};
 
   return (
     <DashboardShell>
@@ -370,7 +384,6 @@ useEffect(() => {
                 <option value="orange_money">Orange Money</option>
                 <option value="mtn_money">MTN Money</option>
                 <option value="moov_money">Moov Money</option>
-                <option value="espece">Espèces</option>
               </select>
             </div>
 

@@ -8,17 +8,23 @@ import {
   BriefcaseBusiness,
   CreditCard,
   LayoutDashboard,
+  MessageSquareText,
+  PackageCheck,
   UserCircle2,
   Wallet,
+  WalletCards,
 } from 'lucide-react';
 
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/missions', label: 'Missions', icon: BriefcaseBusiness },
+  { href: '/partner/orders', label: 'Commandes boutique', icon: PackageCheck },
   { href: '/wallet', label: 'Portefeuille', icon: Wallet },
   { href: '/partner/recharges', label: 'Recharges', icon: CreditCard },
   { href: '/commissions', label: 'Commissions', icon: BadgeDollarSign },
   { href: '/transactions', label: 'Transactions', icon: ArrowLeftRight },
+  { href: '/partner/reviews', label: 'Avis clients', icon: MessageSquareText },
+  { href: '/partner/finance', label: 'Finance', icon: WalletCards },
   { href: '/profile', label: 'Profil', icon: UserCircle2 },
 ];
 
@@ -56,7 +62,7 @@ export default function Sidebar() {
 
           return (
             <Link
-              key={item.href}
+              key={`${item.href}-${item.label}`}
               href={item.href}
               aria-current={isActive ? 'page' : undefined}
               className={`flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold transition ${

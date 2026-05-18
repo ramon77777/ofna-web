@@ -18,6 +18,8 @@ import DashboardShell from '@/components/layout/DashboardShell';
 import { api } from '@/lib/api';
 import { getPartnerToken } from '@/lib/auth';
 
+type MissionFilter = 'all' | 'pending' | 'active' | 'completed' | 'cancelled';
+
 interface PartnerMission {
   id: string;
   missionType: string;
@@ -53,6 +55,17 @@ interface PartnerMission {
     createdAt: string;
   }[];
 }
+
+const missionFilters: Array<{
+  value: MissionFilter;
+  label: string;
+}> = [
+  { value: 'all', label: 'Toutes' },
+  { value: 'pending', label: 'En attente' },
+  { value: 'active', label: 'En cours' },
+  { value: 'completed', label: 'Terminées' },
+  { value: 'cancelled', label: 'Annulées' },
+];
 
 function formatMoney(value: string | number | null | undefined) {
   if (value === null || value === undefined || value === '') return '—';
@@ -154,8 +167,50 @@ function getClientName(mission: PartnerMission) {
   return fullName || 'Client non renseigné';
 }
 
+function getMissionFilterGroup(status: string | null | undefined): MissionFilter {
+  const normalized = String(status ?? '').toLowerCase();
+
+  if (normalized === 'en_attente') {
+    return 'pending';
+  }
+
+  if (
+    normalized === 'acceptee' ||
+    normalized === 'en_route' ||
+    normalized === 'arrive_sur_place' ||
+    normalized === 'en_cours'
+  ) {
+    return 'active';
+  }
+
+  if (normalized === 'terminee') {
+    return 'completed';
+  }
+
+  if (normalized === 'annulee') {
+    return 'cancelled';
+  }
+
+  return 'pending';
+}
+
+function getFilterCount(filter: MissionFilter, stats: {
+  total: number;
+  pending: number;
+  active: number;
+  completed: number;
+  cancelled: number;
+}) {
+  if (filter === 'all') return stats.total;
+  if (filter === 'pending') return stats.pending;
+  if (filter === 'active') return stats.active;
+  if (filter === 'completed') return stats.completed;
+  return stats.cancelled;
+}
+
 export default function MissionsPage() {
   const [missions, setMissions] = useState<PartnerMission[]>([]);
+  const [selectedFilter, setSelectedFilter] = useState<MissionFilter>('all');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -175,6 +230,7 @@ export default function MissionsPage() {
       setRefreshing(false);
     }
   }, []);
+
   useEffect(() => {
     const token = getPartnerToken();
 
@@ -194,21 +250,19 @@ export default function MissionsPage() {
 
   const stats = useMemo(() => {
     const pending = missions.filter(
-      (mission) => mission.missionStatus === 'en_attente',
+      (mission) => getMissionFilterGroup(mission.missionStatus) === 'pending',
     ).length;
 
-    const active = missions.filter((mission) =>
-      ['acceptee', 'en_route', 'arrive_sur_place', 'en_cours'].includes(
-        mission.missionStatus,
-      ),
+    const active = missions.filter(
+      (mission) => getMissionFilterGroup(mission.missionStatus) === 'active',
     ).length;
 
     const completed = missions.filter(
-      (mission) => mission.missionStatus === 'terminee',
+      (mission) => getMissionFilterGroup(mission.missionStatus) === 'completed',
     ).length;
 
     const cancelled = missions.filter(
-      (mission) => mission.missionStatus === 'annulee',
+      (mission) => getMissionFilterGroup(mission.missionStatus) === 'cancelled',
     ).length;
 
     const validatedRevenue = missions.reduce(
@@ -225,6 +279,16 @@ export default function MissionsPage() {
       validatedRevenue,
     };
   }, [missions]);
+
+  const filteredMissions = useMemo(() => {
+    if (selectedFilter === 'all') {
+      return missions;
+    }
+
+    return missions.filter(
+      (mission) => getMissionFilterGroup(mission.missionStatus) === selectedFilter,
+    );
+  }, [missions, selectedFilter]);
 
   const handleRefresh = () => {
     setRefreshing(true);
@@ -317,25 +381,59 @@ export default function MissionsPage() {
           </section>
 
           <section className="rounded-[32px] border border-[var(--ofna-border)] bg-white shadow-sm">
-            <div className="flex flex-col gap-3 border-b border-slate-100 p-6 md:flex-row md:items-center md:justify-between">
-              <div>
-                <h3 className="text-2xl font-black text-[var(--ofna-dark)]">
-                  Historique des missions
-                </h3>
+            <div className="flex flex-col gap-4 border-b border-slate-100 p-6">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h3 className="text-2xl font-black text-[var(--ofna-dark)]">
+                    Historique des missions
+                  </h3>
 
-                <p className="mt-1 text-sm text-slate-500">
-                  {missions.length} mission(s) trouvée(s).
-                </p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    {filteredMissions.length} mission(s) affichée(s) sur{' '}
+                    {missions.length}.
+                  </p>
+                </div>
+
+                <div className="rounded-2xl bg-[var(--ofna-green-soft)] p-3 text-[var(--ofna-green)]">
+                  <BriefcaseBusiness className="h-5 w-5" />
+                </div>
               </div>
 
-              <div className="rounded-2xl bg-[var(--ofna-green-soft)] p-3 text-[var(--ofna-green)]">
-                <BriefcaseBusiness className="h-5 w-5" />
+              <div className="flex flex-wrap gap-2">
+                {missionFilters.map((filter) => {
+                  const selected = selectedFilter === filter.value;
+                  const count = getFilterCount(filter.value, stats);
+
+                  return (
+                    <button
+                      key={filter.value}
+                      type="button"
+                      onClick={() => setSelectedFilter(filter.value)}
+                      className={`inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-black transition ${
+                        selected
+                          ? 'bg-[var(--ofna-green)] text-white shadow-lg shadow-[rgba(22,163,74,0.22)]'
+                          : 'border border-slate-200 bg-white text-slate-600 hover:border-[var(--ofna-green)] hover:text-[var(--ofna-green)]'
+                      }`}
+                    >
+                      <span>{filter.label}</span>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-xs ${
+                          selected
+                            ? 'bg-white/20 text-white'
+                            : 'bg-slate-100 text-slate-500'
+                        }`}
+                      >
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            {missions.length === 0 ? (
+            {filteredMissions.length === 0 ? (
               <div className="p-6 text-sm font-medium text-slate-500">
-                Aucune mission trouvée pour le moment.
+                Aucune mission trouvée dans cette catégorie.
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -354,7 +452,7 @@ export default function MissionsPage() {
                   </thead>
 
                   <tbody className="divide-y divide-slate-100">
-                    {missions.map((mission) => (
+                    {filteredMissions.map((mission) => (
                       <tr
                         key={mission.id}
                         className="text-slate-700 transition hover:bg-slate-50"

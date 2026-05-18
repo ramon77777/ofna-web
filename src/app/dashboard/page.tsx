@@ -3,14 +3,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
+  ArrowLeftRight,
   BadgeDollarSign,
   BriefcaseBusiness,
   CreditCard,
+  MessageSquareText,
   PackageCheck,
   RefreshCcw,
+  ShoppingCart,
   Star,
   UserCircle2,
   Wallet,
+  WalletCards,
 } from 'lucide-react';
 
 import DashboardShell from '@/components/layout/DashboardShell';
@@ -291,6 +295,24 @@ function QuickActions() {
       icon: BriefcaseBusiness,
     },
     {
+      href: '/partner/orders',
+      label: 'Commandes boutique',
+      description: 'Consulter et traiter les commandes reçues.',
+      icon: ShoppingCart,
+    },
+    {
+      href: '/partner/products',
+      label: 'Mes produits',
+      description: 'Gérer les pièces disponibles en boutique.',
+      icon: PackageCheck,
+    },
+    {
+      href: '/partner/reviews',
+      label: 'Avis clients',
+      description: 'Consulter les derniers retours et votre réputation.',
+      icon: MessageSquareText,
+    },
+    {
       href: '/wallet',
       label: 'Voir le portefeuille',
       description: 'Consulter solde, recharges et mouvements.',
@@ -303,10 +325,16 @@ function QuickActions() {
       icon: BadgeDollarSign,
     },
     {
-      href: '/partner/products',
-      label: 'Mes produits',
-      description: 'Gérer les pièces disponibles en boutique.',
-      icon: PackageCheck,
+      href: '/transactions',
+      label: 'Transactions',
+      description: 'Voir les mouvements financiers du portefeuille.',
+      icon: ArrowLeftRight,
+    },
+    {
+      href: '/partner/finance',
+      label: 'Finance',
+      description: 'Accéder à la synthèse financière du partenaire.',
+      icon: WalletCards,
     },
   ];
 
@@ -326,7 +354,7 @@ function QuickActions() {
 
           return (
             <Link
-              key={action.href}
+              key={`${action.href}-${action.label}`}
               href={action.href}
               className="rounded-2xl border border-slate-200 bg-white p-4 transition hover:border-[var(--ofna-green)] hover:bg-[var(--ofna-green-soft)]"
             >

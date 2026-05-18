@@ -2,6 +2,7 @@
 
 import { use, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import {
   ArrowLeft,
   BadgePercent,
@@ -108,6 +109,7 @@ function formatOrderStatus(value: string | null | undefined) {
     en_attente: 'En attente',
     confirmee: 'Confirmée',
     en_traitement: 'En traitement',
+    en_cours_envoi: 'En cours d’envoi',
     terminee: 'Terminée',
     annulee: 'Annulée',
   };
@@ -121,10 +123,12 @@ function formatCategory(value: string | null | undefined) {
     pneu: 'Pneu',
     pneus: 'Pneu',
     moteur: 'Moteur',
+    moteurs: 'Moteur',
     freins: 'Freins',
     accessoire: 'Accessoire',
     accessoires: 'Accessoire',
     autre: 'Autre',
+    autres: 'Autre',
   };
 
   return map[String(value ?? '')] ?? value ?? '—';
@@ -182,46 +186,51 @@ export default function AdminOrderDetailPage({
 }: {
   params: Promise<{ orderId: string }>;
 }) {
-    const { orderId } = use(params);
-    const [order, setOrder] = useState<AdminOrderDetail | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [refreshing, setRefreshing] = useState(false);
-    const [error, setError] = useState<string | null>(null);
+  const { orderId } = use(params);
+  const searchParams = useSearchParams();
 
-    const loadOrder = useCallback(async () => {
-        try {
-            setError(null);
+  const from = searchParams.get('from');
+  const backHref = from === 'reviews' ? '/admin/reviews' : '/admin/orders';
+  const backLabel =
+    from === 'reviews' ? 'Retour aux avis clients' : 'Retour aux commandes';
 
-            const response = await api.get<AdminOrderDetail>(
-            `/orders/${orderId}`,
-            );
+  const [order, setOrder] = useState<AdminOrderDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-            setOrder(response.data);
-        } catch {
-            setError('Impossible de charger le détail de cette commande.');
-        } finally {
-            setLoading(false);
-            setRefreshing(false);
-        }
-    }, [orderId]);
+  const loadOrder = useCallback(async () => {
+    try {
+      setError(null);
+
+      const response = await api.get<AdminOrderDetail>(`/orders/${orderId}`);
+
+      setOrder(response.data);
+    } catch {
+      setError('Impossible de charger le détail de cette commande.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [orderId]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
-        const token = getAccessToken();
-        const user = getCurrentUser();
+      const token = getAccessToken();
+      const user = getCurrentUser();
 
-        if (!token || user?.role !== 'admin') {
+      if (!token || user?.role !== 'admin') {
         window.location.replace('/login');
         return;
-        }
+      }
 
-        void loadOrder();
+      void loadOrder();
     }, 0);
 
     return () => {
-        window.clearTimeout(timeoutId);
+      window.clearTimeout(timeoutId);
     };
-    }, [loadOrder]);
+  }, [loadOrder]);
 
   const handleRefresh = () => {
     setRefreshing(true);
@@ -240,13 +249,13 @@ export default function AdminOrderDetailPage({
     <AdminShell>
       <div className="mb-8 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div>
-            <Link
-                href="/admin/orders"
-                className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 transition hover:border-[var(--ofna-green)] hover:text-[var(--ofna-green)]"
-            >
-                <ArrowLeft className="h-4 w-4" />
-                Retour aux commandes
-            </Link>
+          <Link
+            href={backHref}
+            className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 transition hover:border-[var(--ofna-green)] hover:text-[var(--ofna-green)]"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            {backLabel}
+          </Link>
 
           <p className="mt-6 text-sm font-semibold uppercase tracking-[0.22em] text-[var(--ofna-green)]">
             Détail commande boutique
