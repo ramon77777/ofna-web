@@ -13,7 +13,7 @@ interface ForgotPasswordResponse {
 }
 
 export default function ForgotPasswordPage() {
-  const [phone, setPhone] = useState('+2250701234567');
+  const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [resetToken, setResetToken] = useState<string | null>(null);
 

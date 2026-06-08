@@ -18,7 +18,7 @@ import { LoginResponse } from '@/lib/types';
 export default function LoginPage() {
   
 
-  const [phone, setPhone] = useState('+2250701234567');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
